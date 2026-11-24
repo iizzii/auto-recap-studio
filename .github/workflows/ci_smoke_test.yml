@@ -97,9 +97,7 @@ jobs:
   # ── Job 3: End-to-end with live Gemini + edge-tts ─────────────────────
   e2e-live-llm:
     needs: lint-and-unit
-    if: >-
-      github.event.inputs.live_llm == 'true'
-      && secrets.GEMINI_API_KEY != ''
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.live_llm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:

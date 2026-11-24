@@ -47,7 +47,7 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
         primary_model = str(llm_cfg.get("model", "gemini-3.8-flash"))
         models_to_try = [primary_model] + [
-            m for m in ("gemini-3.8-flash-lite", "gemini-2.5-flash-lite") if m != primary_model
+            m for m in ("gemini-3.5-flash-lite",) if m != primary_model
         ]
         last_exc: Exception | None = None
         for model_name in models_to_try:

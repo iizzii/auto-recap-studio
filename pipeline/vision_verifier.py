@@ -111,7 +111,7 @@ def verify_beats(
             parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg"))
 
         models_to_try = [model_name] + [
-            m for m in ("gemini-3.8-flash-lite", "gemini-2.5-flash-lite") if m != model_name
+            m for m in ("gemini-3.5-flash-lite",) if m != model_name
         ]
         for m_idx, cur_model in enumerate(models_to_try):
             try:

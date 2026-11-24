@@ -1,9 +1,8 @@
+line-length = 100
+
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 ignore = ["E501"]  # line length handled by formatter
-
-[format]
-line-length = 100
 
 [lint.isort]
 known-first-party = ["pipeline"]

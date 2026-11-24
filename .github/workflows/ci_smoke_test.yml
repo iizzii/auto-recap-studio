@@ -38,7 +38,7 @@ jobs:
         run: python -m compileall pipeline tests main.py
 
       - name: Run unit tests
-        run: pytest tests/unit -v
+        run: python -m pytest tests/unit -v
 
   # ── Job 2: End-to-end with synthetic media (all mocks) ────────────────
   e2e-synthetic:
@@ -81,7 +81,7 @@ jobs:
           --force
 
       - name: Run sync tests
-        run: pytest tests/test_sync.py -v
+        run: python -m pytest tests/test_sync.py -v
 
       - name: Upload final video artifact
         uses: actions/upload-artifact@v4
@@ -135,7 +135,7 @@ jobs:
           --force
 
       - name: Run sync tests
-        run: pytest tests/test_sync.py -v
+        run: python -m pytest tests/test_sync.py -v
 
       - name: Upload final video artifact
         uses: actions/upload-artifact@v4

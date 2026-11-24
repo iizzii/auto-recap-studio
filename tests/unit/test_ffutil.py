@@ -70,7 +70,7 @@ class TestRun:
             stderr="",
         )
         result = run(["ffmpeg", "-y", "-i", "in.mp4", "out.mp4"])
-        assert result is None
+        assert result.returncode == 0
         mock_run.assert_called_once()
 
     @patch("pipeline.ffutil.subprocess.run")

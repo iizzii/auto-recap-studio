@@ -47,14 +47,17 @@ def run(
     Returns:
         The completed process result.
     """
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise FFmpegError(cmd, exc.stderr or str(exc)) from exc
     if check and result.returncode != 0:
         raise FFmpegError(cmd, result.stderr)
     return result

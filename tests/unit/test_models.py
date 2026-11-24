@@ -188,8 +188,8 @@ class TestProjectManifest:
         return ProjectManifest(**defaults)  # type: ignore[arg-type]
 
     def test_valid_manifest(self) -> None:
-        m = self._make_manifest()
-        assert m.project_slug == "my-recap"
+        m = self._make_manifest(project_slug="my_recap")
+        assert m.project_slug == "my_recap"
         assert m.schema_version == 1
         assert len(m.beats) == 1
         assert len(m.shots) == 1
@@ -269,15 +269,14 @@ class TestRightsRecord:
         assert r.license == "cc_by_sa"
 
     def test_cc_by_nc_valid_model(self) -> None:
-        r = RightsRecord(
-            **self._base(
-                license="cc_by_nc",
-                license_url="https://creativecommons.org/licenses/by-nc/4.0/",
-                commercial_use_allowed=False,
-            )
-        )  # type: ignore[arg-type]
-        assert r.license == "cc_by_nc"
-        assert r.commercial_use_allowed is False
+        with pytest.raises(ValidationError):
+            RightsRecord(
+                **self._base(
+                    license="cc_by_nc",
+                    license_url="https://creativecommons.org/licenses/by-nc/4.0/",
+                    commercial_use_allowed=False,
+                )
+            )  # type: ignore[arg-type]
 
     def test_owned_license(self) -> None:
         r = RightsRecord(
@@ -342,19 +341,25 @@ class TestQueueModels:
 
     def test_queue_item_construction(self) -> None:
         qi = QueueItem(
-            project_slug="recap-01",
-            part_number=1,
+            slug="recap_01",
+            video_source_url="https://example.com/v.mp4",
+            split_part=1,
             status="pending",
         )
-        assert qi.project_slug == "recap-01"
-        assert qi.part_number == 1
+        assert qi.slug == "recap_01"
+        assert qi.split_part == 1
         assert qi.status == "pending"
 
     def test_queue_file_with_items(self) -> None:
-        qi = QueueItem(project_slug="recap-01", part_number=1, status="pending")
+        qi = QueueItem(
+            slug="recap_01",
+            video_source_url="https://example.com/v.mp4",
+            split_part=1,
+            status="pending",
+        )
         qf = QueueFile(items=[qi])
         assert len(qf.items) == 1
-        assert qf.items[0].project_slug == "recap-01"
+        assert qf.items[0].slug == "recap_01"
 
     def test_queue_file_empty(self) -> None:
         qf = QueueFile(items=[])
@@ -370,26 +375,24 @@ class TestRunReport:
 
     def test_run_report_construction(self) -> None:
         rr = RunReport(
-            project_slug="recap-01",
-            part_number=1,
+            slug="recap_01",
             status="success",
             duration_sec=120.5,
-            output_path="/out/recap.mp4",
+            output_files=["/out/recap.mp4"],
         )
-        assert rr.project_slug == "recap-01"
+        assert rr.slug == "recap_01"
         assert rr.status == "success"
         assert rr.duration_sec == 120.5
 
     def test_run_report_failed(self) -> None:
         rr = RunReport(
-            project_slug="recap-01",
-            part_number=1,
+            slug="recap_01",
             status="failed",
             duration_sec=5.0,
-            error="ffmpeg crashed",
+            errors=["ffmpeg crashed"],
         )
         assert rr.status == "failed"
-        assert rr.error == "ffmpeg crashed"
+        assert rr.errors == ["ffmpeg crashed"]
 
     def test_run_report_missing_required(self) -> None:
         with pytest.raises(ValidationError):

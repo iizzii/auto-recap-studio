@@ -89,7 +89,7 @@ def verify_beats(
     max_px = int(vision_cfg.get("contact_sheet_max_px", 1280))
     batch_size = max(1, int(vision_cfg.get("batch_beats_per_call", 4)))
     sleep_sec = float(vision_cfg.get("rate_limit_sleep_sec", 4))
-    model_name = str(llm_cfg.get("model", "gemini-2.5-flash"))
+    model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
     sys_prompt = (_PROMPTS_DIR / "vision_shot_verifier.txt").read_text(encoding="utf-8")
 
     client = genai.Client(api_key=api_key)

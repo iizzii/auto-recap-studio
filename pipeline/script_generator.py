@@ -44,7 +44,7 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
         client = genai.Client(api_key=api_key)
-        model_name = str(llm_cfg.get("model", "gemini-2.5-flash"))
+        model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
         resp = client.models.generate_content(
             model=model_name,
             contents=prompt,

@@ -285,7 +285,7 @@ def select_shots(
             return False
         return any(min(e, ue) - max(s, us) > 0.25 for us, ue in used_ranges)
 
-    for beat, _shot_frame_list in zip(manifest.beats, planned_frames):
+    for beat, shot_frame_list in zip(manifest.beats, planned_frames):
         cands = beat_candidates[beat.beat_id]
         v_list = vision_scores.get(beat.beat_id, [])
         ranked: list[tuple[float, dict[str, Any], bool]] = []

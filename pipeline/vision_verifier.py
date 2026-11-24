@@ -120,7 +120,6 @@ def verify_beats(
                     contents=parts,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        thinking_config=types.ThinkingConfig(thinking_budget=0),
                     ),
                 )
                 data = json.loads(_strip_json_fences(resp.text or "{}"))

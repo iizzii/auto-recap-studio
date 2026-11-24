@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -45,15 +46,28 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
         client = genai.Client(api_key=api_key)
         model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
-        resp = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-                response_mime_type="application/json",
-            ),
-        )
-        return resp.text or ""
+        last_exc: Exception | None = None
+        for attempt in range(4):
+            try:
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        response_mime_type="application/json",
+                    ),
+                )
+                return resp.text or ""
+            except Exception as exc:
+                last_exc = exc
+                msg = str(exc)
+                if any(code in msg for code in ("429", "503", "UNAVAILABLE", "RESOURCE_EXHAUSTED")) and attempt < 3:
+                    sleep_s = 5.0 * (2**attempt)
+                    log.warning("Gemini API transient error (attempt %d/4): %s; retrying in %.0fs", attempt + 1, msg[:120], sleep_s)
+                    time.sleep(sleep_s)
+                    continue
+                raise
+        raise RuntimeError(f"Gemini API failed: {last_exc}")
 
     if provider == "openai_compatible":
         from openai import OpenAI

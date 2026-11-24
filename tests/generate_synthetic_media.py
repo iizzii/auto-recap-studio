@@ -58,18 +58,43 @@ def generate_video(out_dir: Path) -> Path:
 
 
 def generate_srt(out_dir: Path) -> Path:
-    """Create a 24-line SRT file with timestamps spread across the video."""
+    """Create a 6-scene, 44-second adventure SRT with >=1.0s gaps between scenes."""
     srt_path = out_dir / "source.srt"
-    interval = DURATION_SEC / SRT_LINES
+    scenes: list[list[tuple[float, float, str]]] = [
+        [
+            (0.5, 3.2, "MILO: Look under the rusted bridge, Robo!"),
+            (3.4, 6.2, "A glowing blue signal cube is pulsing in the mud."),
+        ],
+        [
+            (7.5, 10.4, "ROBO: Warning, Milo. Its core clock is counting down fast."),
+            (10.6, 13.4, "If it reaches zero before sunset, the canyon relay explodes."),
+        ],
+        [
+            (14.7, 17.6, "Searchlight drones sweep across the ridge behind them."),
+            (17.8, 20.6, "Milo snatches the cube and sprints into the drainage tunnel."),
+        ],
+        [
+            (22.0, 25.0, "ROBO: Holding the flooded vault door!"),
+            (25.2, 28.0, "Sparks rain down as Robo welds the jammed blast hatch shut."),
+        ],
+        [
+            (29.4, 32.4, "Milo slots the pulsing cube into the ancient star-map console."),
+            (32.6, 35.4, "Spinning holographic rings ignite across the dark chamber."),
+        ],
+        [
+            (36.8, 40.0, "MILO: The ceiling is opening! That was never a bomb."),
+            (40.2, 43.8, "Above them waits a hidden launch bay and an untouched starship."),
+        ],
+    ]
     lines: list[str] = []
-    for i in range(SRT_LINES):
-        idx = i + 1
-        start = i * interval
-        end = start + interval - 0.1
-        lines.append(str(idx))
-        lines.append(f"{_fmt_ts(start)} --> {_fmt_ts(end)}")
-        lines.append(f"Synthetic subtitle line {idx}.")
-        lines.append("")
+    idx = 1
+    for scene in scenes:
+        for start, end, text in scene:
+            lines.append(str(idx))
+            lines.append(f"{_fmt_ts(start)} --> {_fmt_ts(end)}")
+            lines.append(text)
+            lines.append("")
+            idx += 1
     srt_path.write_text("\n".join(lines), encoding="utf-8")
     return srt_path
 

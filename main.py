@@ -167,6 +167,7 @@ def run(
         split_part=split_part,
         mock_llm=mock_llm,
         force=force,
+        budget=budget,
     )
     run_rep.warnings.extend(script_warnings)
     run_rep.stages_completed.append("script")

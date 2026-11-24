@@ -5,13 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel
 
 from pipeline import srt_parser
+from pipeline.budget import TimeBudget
 from pipeline.models import Beat, ProjectManifest, RightsRecord
 from pipeline.rights_guard import build_attribution_block
 from pipeline.script_validator import validate_manifest
@@ -20,6 +24,84 @@ log = logging.getLogger(__name__)
 
 _EXIT_CODE_SCRIPT_FAIL = 5
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+_MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
+
+_MOOD_SYNONYMS: dict[str, str] = {
+    "tension": "tense",
+    "suspense": "tense",
+    "suspenseful": "tense",
+    "sad": "emotional",
+    "dramatic": "emotional",
+    "heartfelt": "emotional",
+    "humorous": "funny",
+    "comedy": "funny",
+    "comedic": "funny",
+    "exciting": "action",
+    "energetic": "action",
+    "mystery": "reveal",
+    "mysterious": "reveal",
+    "peaceful": "calm",
+    "quiet": "calm",
+    "opening": "hook",
+    "ending": "cliffhanger",
+}
+
+
+class EventItem(BaseModel):
+    """Structured event item returned by Pass 1 plot extraction."""
+
+    start: str
+    end: str
+    summary: str
+    characters: list[str]
+    visual_notes: str
+    craft_notes: str = ""
+    intensity: int
+    hook_candidate: bool = False
+
+
+class EventLedgerResponse(BaseModel):
+    """Pass 1 Gemini constrained-decoding schema."""
+
+    events: list[EventItem]
+
+
+class BeatDraft(BaseModel):
+    """Structured beat item returned by Pass 2 script writer."""
+
+    beat_id: int
+    narration: str
+    source_window_start_sec: float
+    source_window_end_sec: float
+    visual_cue: str
+    mood: Literal[
+        "hook", "funny", "tense", "emotional", "action", "cliffhanger", "reveal", "calm"
+    ]
+    kind: Literal["story", "commentary"]
+
+
+class ScriptDraftResponse(BaseModel):
+    """Pass 2 Gemini constrained-decoding schema."""
+
+    title: str
+    banner_text: str
+    description: str
+    hashtags: list[str]
+    beats: list[BeatDraft]
+
+
+def _normalize_manifest_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize common LLM mood/kind synonym drift before strict Pydantic validation."""
+    for beat in data.get("beats", []):
+        if isinstance(beat, dict):
+            raw_mood = str(beat.get("mood", "action")).strip().lower()
+            beat["mood"] = _MOOD_SYNONYMS.get(raw_mood, raw_mood)
+            raw_kind = str(beat.get("kind", "story")).strip().lower()
+            if raw_kind not in ("story", "commentary"):
+                beat["kind"] = "story"
+            else:
+                beat["kind"] = raw_kind
+    return data
 
 
 def _strip_json_fences(raw: str) -> str:
@@ -31,7 +113,12 @@ def _strip_json_fences(raw: str) -> str:
     return text
 
 
-def _call_llm(prompt: str, config: dict[str, Any]) -> str:
+def _call_llm(
+    prompt: str,
+    config: dict[str, Any],
+    response_schema: Any = None,
+    budget: TimeBudget | None = None,
+) -> str:
     """Call Gemini (google-genai) or an OpenAI-compatible endpoint."""
     llm_cfg = config.get("llm", {})
     provider = str(llm_cfg.get("provider", "gemini"))
@@ -49,17 +136,34 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         models_to_try = [primary_model] + [
             m for m in ("gemini-3.5-flash-lite", "gemini-3.5-flash") if m != primary_model
         ]
+        backoff_schedule = (5.0, 12.0, 25.0, 45.0)
         last_exc: Exception | None = None
+
         for model_name in models_to_try:
-            for attempt in range(3):
+            now = time.monotonic()
+            cooldown_until = _MODEL_COOLDOWN_UNTIL.get(model_name, 0.0)
+            if cooldown_until > now:
+                log.warning(
+                    "Skipping %s (429 cooldown for %.1fs more).",
+                    model_name,
+                    cooldown_until - now,
+                )
+                continue
+
+            for attempt in range(4):
+                if budget is not None:
+                    budget.check_or_exit("script_generator")
                 try:
+                    gen_kwargs: dict[str, Any] = {
+                        "temperature": temperature,
+                        "response_mime_type": "application/json",
+                    }
+                    if response_schema is not None:
+                        gen_kwargs["response_schema"] = response_schema
                     resp = client.models.generate_content(
                         model=model_name,
                         contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=temperature,
-                            response_mime_type="application/json",
-                        ),
+                        config=types.GenerateContentConfig(**gen_kwargs),
                     )
                     return resp.text or ""
                 except Exception as exc:
@@ -68,12 +172,30 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
                     if "404" in msg or "NOT_FOUND" in msg:
                         log.warning("Gemini model %s not found; trying next fallback.", model_name)
                         break
-                    transient = ("429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "timed out")
+                    if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                        _MODEL_COOLDOWN_UNTIL[model_name] = time.monotonic() + 65.0
+                        log.warning(
+                            "Gemini model %s rate-limited (429); cooling down 65s and trying fallback.",
+                            model_name,
+                        )
+                        break
+                    transient = ("500", "502", "503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED", "timed out")
                     if any(code in msg for code in transient):
-                        sleep_s = 10.0 * (attempt + 1)
-                        log.warning("Gemini model %s transient error (attempt %d/3): %s; retrying in %.0fs", model_name, attempt + 1, msg[:100], sleep_s)
-                        time.sleep(sleep_s)
-                        continue
+                        if attempt < 3:
+                            sleep_s = backoff_schedule[attempt] + random.uniform(0.0, 2.0)
+                            if budget is not None and budget.remaining_sec() < sleep_s + 120.0:
+                                log.warning("Low time budget; skipping remaining retries for %s.", model_name)
+                                break
+                            log.warning(
+                                "Gemini model %s transient error (attempt %d/4): %s; retrying in %.1fs",
+                                model_name,
+                                attempt + 1,
+                                msg[:100],
+                                sleep_s,
+                            )
+                            time.sleep(sleep_s)
+                            continue
+                        break
                     raise
         raise RuntimeError(f"Gemini API failed across {models_to_try}: {last_exc}")
 
@@ -201,6 +323,7 @@ def generate_or_load_script(
     split_part: int,
     mock_llm: bool = False,
     force: bool = False,
+    budget: TimeBudget | None = None,
 ) -> tuple[ProjectManifest, list[str]]:
     """Load an existing committed script manifest or generate one via two-pass LLM."""
     manifest_path = project_dir / "02_script_manifest.json"
@@ -238,7 +361,9 @@ def generate_or_load_script(
     all_events: list[dict[str, Any]] = []
     for idx, chunk in enumerate(text_chunks):
         prompt = f"{pass1_tmpl}\n\nTRANSCRIPT CHUNK {idx + 1}/{len(text_chunks)}:\n{chunk}"
-        raw_out = _call_llm(prompt, config)
+        raw_out = _call_llm(
+            prompt, config, response_schema=EventLedgerResponse, budget=budget
+        )
         parsed = json.loads(_strip_json_fences(raw_out))
         all_events.extend(parsed.get("events", []))
 
@@ -284,9 +409,12 @@ def generate_or_load_script(
                 + "\n- ".join(last_errors)
             )
         prompt = f"{pass2_tmpl}\n\nINPUTS:\n{payload_context}{feedback}"
-        best_raw = _call_llm(prompt, config)
+        best_raw = _call_llm(
+            prompt, config, response_schema=ScriptDraftResponse, budget=budget
+        )
         try:
             data = json.loads(_strip_json_fences(best_raw))
+            data = _normalize_manifest_data(data)
             data["schema_version"] = 1
             data["project_slug"] = slug
             data["style"] = style

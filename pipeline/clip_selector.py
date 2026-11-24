@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 from scenedetect import ContentDetector, SceneManager, open_video
 
 from pipeline import ffutil, timeline, vision_verifier
-from pipeline.models import Beat, ProjectManifest, Shot
+from pipeline.models import ProjectManifest, Shot
 
 log = logging.getLogger(__name__)
 
@@ -199,7 +199,7 @@ def select_shots(
     used_ranges: list[tuple[float, float]] = []
     min_allowed, max_allowed = allowed_range
 
-    for beat, shot_frame_list in zip(manifest.beats, planned_frames):
+    for beat, _shot_frame_list in zip(manifest.beats, planned_frames):
         win_start = max(min_allowed, beat.source_window_start_sec - 5.0)
         win_end = min(max_allowed, beat.source_window_end_sec + 5.0)
         if win_end - win_start < 4.0:
@@ -283,12 +283,9 @@ def select_shots(
     def _overlaps(s: float, e: float) -> bool:
         if not never_reuse:
             return False
-        for us, ue in used_ranges:
-            if min(e, ue) - max(s, us) > 0.25:
-                return True
-        return False
+        return any(min(e, ue) - max(s, us) > 0.25 for us, ue in used_ranges)
 
-    for beat, shot_frame_list in zip(manifest.beats, planned_frames):
+    for beat, _shot_frame_list in zip(manifest.beats, planned_frames):
         cands = beat_candidates[beat.beat_id]
         v_list = vision_scores.get(beat.beat_id, [])
         ranked: list[tuple[float, dict[str, Any], bool]] = []

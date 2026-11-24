@@ -2,7 +2,18 @@ line-length = 100
 
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
-ignore = ["E501"]  # line length handled by formatter
+ignore = [
+  "E501",    # line length handled by formatter
+  "B008",    # Typer Option() in function defaults
+  "RUF001",  # en-dash in strings
+  "RUF002",  # en-dash/multiplication sign in docstrings
+  "RUF003",  # en-dash in comments
+  "RUF022",  # __all__ sorting
+  "UP007",   # Optional[X] alongside X | Y
+  "UP022",   # subprocess.run stdout/stderr PIPE
+  "UP035",   # typing.Sequence
+  "I001",    # import sorting
+]
 
 [lint.isort]
 known-first-party = ["pipeline"]

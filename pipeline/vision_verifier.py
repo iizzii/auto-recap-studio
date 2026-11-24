@@ -115,7 +115,10 @@ def verify_beats(
                 resp = client.models.generate_content(
                     model=model_name,
                     contents=parts,
-                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    ),
                 )
                 data = json.loads(_strip_json_fences(resp.text or "{}"))
                 for b_res in data.get("beats", []):

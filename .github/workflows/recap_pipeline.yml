@@ -1,0 +1,223 @@
+name: Recap Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Project slug (^[a-z0-9_]{3,40}$)"
+        required: true
+        type: string
+      video_source_url:
+        description: "Cleared source video URL (HTTP/IA/Drive/R2)"
+        required: true
+        type: string
+      srt_source_url:
+        description: "Optional subtitle URL"
+        required: false
+        type: string
+        default: ""
+      mode:
+        description: "Execution mode"
+        required: true
+        type: choice
+        default: plan_only
+        options:
+          - plan_only
+          - render_only
+          - full_auto
+      style:
+        description: "Narration style"
+        required: true
+        type: choice
+        default: commentary
+        options:
+          - commentary
+          - recap
+      split_part:
+        description: "0=full, 1=part1, 2=part2"
+        required: true
+        type: string
+        default: "0"
+      max_duration:
+        description: "Max duration in seconds (e.g. 175 for Shorts, 88 for Reels)"
+        required: true
+        type: string
+        default: "175"
+      publish_target:
+        description: "Delivery target"
+        required: true
+        type: choice
+        default: all_private
+        options:
+          - artifact_only
+          - telegram
+          - r2_link
+          - youtube_private
+          - youtube_public
+          - all_private
+      force_regenerate:
+        description: "Force regenerate script even if 02_script_manifest.json exists"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  run-recap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    concurrency:
+      group: recap-${{ inputs.slug }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Validate workflow inputs
+        env:
+          IN_SLUG: ${{ inputs.slug }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_STYLE: ${{ inputs.style }}
+          IN_SPLIT: ${{ inputs.split_part }}
+          IN_MAX_DUR: ${{ inputs.max_duration }}
+        run: |
+          if [[ ! "$IN_SLUG" =~ ^[a-z0-9_]{3,40}$ ]]; then
+            echo "Invalid slug: must match ^[a-z0-9_]{3,40}$" >&2
+            exit 2
+          fi
+          if [[ ! "$IN_SPLIT" =~ ^[012]$ ]]; then
+            echo "Invalid split_part: must be 0, 1, or 2" >&2
+            exit 2
+          fi
+          if [[ ! "$IN_MAX_DUR" =~ ^[0-9]+$ ]] || [ "$IN_MAX_DUR" -lt 30 ] || [ "$IN_MAX_DUR" -gt 180 ]; then
+            echo "Invalid max_duration: must be integer in [30, 180]" >&2
+            exit 2
+          fi
+
+      - name: Reclaim disk space if needed
+        run: |
+          FREE_GB=$(df -BG /tmp | awk 'NR==2 {gsub("G","",$4); print $4}')
+          if [ "$FREE_GB" -lt 15 ]; then
+            sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
+          fi
+
+      - name: Install FFmpeg and font dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+          ffmpeg -filters | grep -E "(^| )ass( |$)"
+
+      - name: Cache Whisper models and fonts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            assets/fonts
+          key: recap-models-fonts-v1
+
+      - name: Ensure Montserrat ExtraBold font
+        run: |
+          if [ ! -f assets/fonts/Montserrat-ExtraBold.ttf ]; then
+            curl -fsSL -o assets/fonts/Montserrat-ExtraBold.ttf \
+              "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-ExtraBold.ttf" \
+              || echo "Font download failed; falling back to DejaVu Sans Bold"
+          fi
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run recap pipeline
+        env:
+          IN_SLUG: ${{ inputs.slug }}
+          IN_VIDEO_URL: ${{ inputs.video_source_url }}
+          IN_SRT_URL: ${{ inputs.srt_source_url }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_STYLE: ${{ inputs.style }}
+          IN_SPLIT: ${{ inputs.split_part }}
+          IN_MAX_DUR: ${{ inputs.max_duration }}
+          IN_TARGET: ${{ inputs.publish_target }}
+          IN_FORCE: ${{ inputs.force_regenerate }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_OUTPUT_BUCKET: ${{ secrets.R2_OUTPUT_BUCKET }}
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: |
+          ARGS=(
+            run
+            --config config.yaml
+            --slug "$IN_SLUG"
+            --video-source "$IN_VIDEO_URL"
+            --mode "$IN_MODE"
+            --style "$IN_STYLE"
+            --split-part "$IN_SPLIT"
+            --max-duration "$IN_MAX_DUR"
+            --publish-target "$IN_TARGET"
+          )
+          if [ -n "$IN_SRT_URL" ]; then
+            ARGS+=(--srt-source "$IN_SRT_URL")
+          fi
+          if [ "$IN_FORCE" = "true" ]; then
+            ARGS+=(--force)
+          fi
+          python main.py "${ARGS[@]}"
+
+      - name: Commit lightweight project manifests
+        env:
+          IN_SLUG: ${{ inputs.slug }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "projects/$IN_SLUG/"*.json "projects/$IN_SLUG/"*.jpg 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No lightweight project changes to commit."
+            exit 0
+          fi
+          for f in $(git diff --cached --name-only); do
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -gt 2097152 ]; then
+              echo "Refusing to commit oversized file $f ($SIZE bytes)" >&2
+              exit 1
+            fi
+          done
+          git commit -m "chore($IN_SLUG): update manifests [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase && git push && break
+            sleep 3
+          done
+
+      - name: Upload output artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: recap-${{ inputs.slug }}
+          path: /tmp/recap_work/${{ inputs.slug }}/output/
+          retention-days: 2
+
+      - name: Upload debug logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ inputs.slug }}
+          path: /tmp/recap_work/${{ inputs.slug }}/debug/
+          retention-days: 2
+          if-no-files-found: ignore
+
+      - name: Cleanup work directory
+        if: always()
+        run: rm -rf /tmp/recap_work

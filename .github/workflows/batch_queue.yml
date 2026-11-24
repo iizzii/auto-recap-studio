@@ -1,0 +1,68 @@
+name: Batch Queue
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 14 * * 1,4"
+
+jobs:
+  process-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    concurrency:
+      group: recap-queue
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install FFmpeg and font dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Process next pending queue item
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_OUTPUT_BUCKET: ${{ secrets.R2_OUTPUT_BUCKET }}
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python main.py queue-next --config config.yaml
+
+      - name: Commit queue and project manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add queue.json projects/*/*.json projects/*/*.jpg 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(queue): update queue status [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 3
+            done
+          fi
+
+      - name: Cleanup work directory
+        if: always()
+        run: rm -rf /tmp/recap_work

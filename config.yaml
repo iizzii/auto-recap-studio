@@ -1,0 +1,148 @@
+runtime:
+  fps: 30
+  width: 1080
+  height: 1920
+  min_duration_sec: 120
+  max_duration_sec: 175
+  work_dir: /tmp/recap_work
+  min_free_disk_gb: 4
+  threads: 2
+  time_budget_minutes: 55
+
+rights:
+  strict_rights_check: true
+  allowed_licenses: [public_domain, cc0, cc_by, cc_by_sa, owned, licensed]
+
+source:
+  max_source_gb: 6
+  exclude_head_sec: 20
+  exclude_tail_pct: 8
+  auto_transcribe_source: true
+  whisper_model_fallback: small.en
+  subtitle_language: en
+
+llm:
+  provider: gemini
+  model: gemini-2.5-flash
+  temperature: 0.7
+  max_retries: 3
+  chunk_tokens: 2500
+  chunk_overlap_tokens: 200
+  openai_compatible:
+    base_url: ""
+    model: ""
+
+script:
+  style: commentary
+  min_words: 360
+  max_words: 430
+  min_beats: 18
+  max_beats: 26
+  beat_min_words: 12
+  beat_max_words: 28
+  min_commentary_share: 0.25
+  split_cliffhanger_range: [0.40, 0.50]
+
+tts:
+  backend: edge_tts
+  voice: en-US-AndrewNeural
+  rate: "+8%"
+  retries: 4
+  backoff_base_sec: 1.5
+  trim_silence_db: -45
+  internal_pause_max_ms: 150
+  internal_pause_target_ms: 85
+  beat_loudness_lufs: -16
+  beat_gap_frames: 2
+  max_global_atempo: 1.18
+  mock_tone_hz: 280
+
+shots:
+  min_shot_sec: 2.0
+  max_shot_sec: 4.0
+  hard_max_shot_sec: 4.5
+  target_shot_sec: 2.8
+  speed_range: [0.97, 1.10]
+  proxy_height: 320
+  scene_threshold: 27.0
+  min_luma: 15
+  motion_sample_fps: 2
+  never_reuse_source_range: true
+  candidates_per_beat: 6
+
+vision:
+  enabled: true
+  provider: gemini
+  frames_per_candidate: 3
+  contact_sheet_max_px: 1280
+  min_match_score: 5
+  batch_beats_per_call: 4
+  rate_limit_sleep_sec: 4
+
+layout:
+  mode: blurred_letterbox
+  bg_blur: "boxblur=25:5"
+  bg_brightness: -0.22
+  fg_zoom_pct: 2
+  banner:
+    enabled: true
+    y: 200
+    max_words: 6
+
+grade:
+  enabled: true
+  eq: "contrast=1.04:saturation=1.06"
+  unsharp: "3:3:0.3"
+
+captions:
+  model: base.en
+  device: cpu
+  compute_type: int8
+  cpu_threads: 2
+  words_per_chunk: [2, 4]
+  max_chars_per_line: 18
+  font_name: "Montserrat ExtraBold"
+  font_fallback: "DejaVu Sans Bold"
+  font_size: 78
+  outline_px: 5
+  shadow_px: 2
+  active_color: "#FFE600"
+  inactive_color: "#FFFFFF"
+  alignment: 2
+  margin_v: 420
+  accent_rotation: ["#FFE600", "#00E5FF", "#FF5C8A", "#9BFF3B"]
+
+audio:
+  source_audio_mode: "off"
+  source_ducked_db: -26
+  bgm_db_below_voice: -22
+  bgm_fade_out_sec: 1.5
+  sfx_on_transitions: true
+  target_lufs: -14
+  true_peak_db: -1.0
+  sample_rate: 48000
+  aac_bitrate: 192k
+
+encode:
+  preset: veryfast
+  crf: 20
+  intermediate_crf: 16
+  intermediate_preset: ultrafast
+  parallel_shot_jobs: 2
+
+publishing:
+  default_target: all_private
+  max_public_uploads_per_week: 3
+  youtube:
+    category_id: "1"
+    default_privacy: private
+    contains_synthetic_media: true
+  telegram:
+    max_video_mb: 50
+  r2:
+    presign_days: 7
+
+qa:
+  av_sync_tolerance_sec: 0.15
+  max_silence_gap_ms: 400
+  fail_on_warnings: false

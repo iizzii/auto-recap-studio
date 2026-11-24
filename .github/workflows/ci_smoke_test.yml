@@ -1,0 +1,151 @@
+name: CI Smoke Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      live_llm:
+        description: "Run with real Gemini API instead of mocks"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # ── Job 1: Lint + Unit Tests ───────────────────────────────────────────
+  lint-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Compile-check all Python files
+        run: python -m compileall pipeline tests main.py
+
+      - name: Run unit tests
+        run: pytest tests/unit -v
+
+  # ── Job 2: End-to-end with synthetic media (all mocks) ────────────────
+  e2e-synthetic:
+    needs: lint-and-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate synthetic test fixtures
+        run: python tests/generate_synthetic_media.py --out-dir /tmp/recap_work/ci_synth
+
+      - name: Run full pipeline (mocked LLM/TTS/vision)
+        run: >
+          python main.py run
+          --config tests/ci_config.yaml
+          --slug ci_synth
+          --video-source /tmp/recap_work/ci_synth/source.mp4
+          --srt-source /tmp/recap_work/ci_synth/source.srt
+          --mode full_auto
+          --publish-target artifact_only
+          --mock-llm
+          --mock-tts
+          --mock-vision
+          --force
+
+      - name: Run sync tests
+        run: pytest tests/test_sync.py -v
+
+      - name: Upload final video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-final-short
+          path: /tmp/recap_work/ci_synth/output/final_short.mp4
+          retention-days: 1
+
+      - name: Cleanup work directory
+        if: always()
+        run: rm -rf /tmp/recap_work
+
+  # ── Job 3: End-to-end with live Gemini + edge-tts ─────────────────────
+  e2e-live-llm:
+    needs: lint-and-unit
+    if: >-
+      github.event.inputs.live_llm == 'true'
+      && secrets.GEMINI_API_KEY != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate synthetic test fixtures
+        run: python tests/generate_synthetic_media.py --out-dir /tmp/recap_work/ci_synth
+
+      - name: Run full pipeline (live LLM + TTS)
+        run: >
+          python main.py run
+          --config tests/ci_config.yaml
+          --slug ci_synth
+          --video-source /tmp/recap_work/ci_synth/source.mp4
+          --srt-source /tmp/recap_work/ci_synth/source.srt
+          --mode full_auto
+          --publish-target artifact_only
+          --force
+
+      - name: Run sync tests
+        run: pytest tests/test_sync.py -v
+
+      - name: Upload final video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-live-llm-final-short
+          path: /tmp/recap_work/ci_synth/output/final_short.mp4
+          retention-days: 1
+
+      - name: Cleanup work directory
+        if: always()
+        run: rm -rf /tmp/recap_work

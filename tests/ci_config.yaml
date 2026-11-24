@@ -1,0 +1,16 @@
+runtime:
+  min_duration_sec: 15
+  max_duration_sec: 35
+  time_budget_minutes: 20
+
+source:
+  exclude_head_sec: 0
+  exclude_tail_pct: 0
+
+script:
+  min_words: 40
+  max_words: 90
+  min_beats: 4
+  max_beats: 8
+  beat_min_words: 6
+  beat_max_words: 20

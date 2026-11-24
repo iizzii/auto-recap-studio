@@ -1,0 +1,175 @@
+"""Pydantic v2 domain models for the recap-video pipeline."""
+
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+ALLOWED_LICENSES = (
+    "public_domain",
+    "cc0",
+    "cc_by",
+    "cc_by_sa",
+    "owned",
+    "licensed",
+)
+REJECTED_LICENSE_PREFIXES = (
+    "cc_by_nc",
+    "cc_by_nd",
+    "all_rights_reserved",
+    "unknown",
+)
+MOODS = (
+    "hook",
+    "funny",
+    "tense",
+    "emotional",
+    "action",
+    "cliffhanger",
+    "reveal",
+    "calm",
+)
+
+
+class Beat(BaseModel):
+    """A single narrative beat in the recap script."""
+
+    beat_id: int = Field(ge=1)
+    narration: str = Field(min_length=1)
+    source_window_start_sec: float = Field(ge=0)
+    source_window_end_sec: float = Field(gt=0)
+    visual_cue: str = Field(min_length=1)
+    mood: Literal[
+        "hook",
+        "funny",
+        "tense",
+        "emotional",
+        "action",
+        "cliffhanger",
+        "reveal",
+        "calm",
+    ]
+    kind: Literal["story", "commentary"]
+    audio_duration_sec: Optional[float] = None
+    audio_frames: Optional[int] = None
+
+    @model_validator(mode="after")
+    def end_after_start(self) -> Beat:
+        """Ensure the source window end is strictly after the start."""
+        if self.source_window_end_sec <= self.source_window_start_sec:
+            raise ValueError(
+                f"Beat {self.beat_id}: end ({self.source_window_end_sec}) "
+                f"must be > start ({self.source_window_start_sec})"
+            )
+        return self
+
+
+class Shot(BaseModel):
+    """A single video shot mapped to a beat."""
+
+    beat_id: int = Field(ge=1)
+    shot_index: int = Field(ge=0)
+    src_start_sec: float = Field(ge=0)
+    src_end_sec: float = Field(gt=0)
+    speed_factor: float = Field(ge=0.5, le=2.0)
+    frames: int = Field(ge=1)
+    match_score: Optional[float] = None
+    flag: Optional[Literal["low_match", "motion_only", "manual"]] = None
+
+
+class ProjectManifest(BaseModel):
+    """Top-level manifest describing a recap video project."""
+
+    schema_version: int = 1
+    project_slug: str = Field(pattern=r"^[a-z0-9_]{3,40}$")
+    style: Literal["commentary", "recap"]
+    part_number: int = Field(ge=0, le=2)
+    title: str = Field(max_length=75)
+    banner_text: str
+    description: str
+    hashtags: list[str] = Field(min_length=1)
+    source_title: str
+    attribution_block: str = ""
+    beats: list[Beat] = Field(min_length=1)
+    shots: list[Shot] = Field(default_factory=list)
+
+    @field_validator("banner_text")
+    @classmethod
+    def banner_word_count(cls, v: str) -> str:
+        """Banner text must be 3-6 words."""
+        words = v.split()
+        if not (3 <= len(words) <= 6):
+            raise ValueError(
+                f"banner_text must be 3-6 words, got {len(words)}"
+            )
+        return v
+
+
+class RightsRecord(BaseModel):
+    """Copyright / license record for the source material."""
+
+    work_title: str = Field(min_length=1)
+    creator: str = Field(min_length=1)
+    year: int
+    license: Literal[
+        "public_domain", "cc0", "cc_by", "cc_by_sa", "owned", "licensed"
+    ]
+    license_url: Optional[str] = None
+    source_page_url: str = Field(min_length=1)
+    commercial_use_allowed: bool
+    derivatives_allowed: bool
+    attribution_text: Optional[str] = None
+    pd_basis: Optional[str] = None
+    pd_verified_by_human: bool = False
+    license_document_url: Optional[str] = None
+    owner_statement: Optional[str] = None
+    soundtrack_rights_note: Optional[str] = None
+    verified_by: str = Field(min_length=1)
+    verified_on: str = Field(min_length=1)
+
+
+class ApprovalRecord(BaseModel):
+    """Human approval gate for a project."""
+
+    approved: bool = False
+    approved_by: Optional[str] = None
+    approved_on: Optional[str] = None
+
+
+class QueueItem(BaseModel):
+    """A single item in the processing queue."""
+
+    slug: str = Field(pattern=r"^[a-z0-9_]{3,40}$")
+    video_source_url: str
+    srt_source_url: Optional[str] = None
+    style: Literal["commentary", "recap"] = "commentary"
+    split_part: int = Field(ge=0, le=2, default=0)
+    max_duration: int = 175
+    publish_target: str = "all_private"
+    auto_approve: bool = False
+    status: Literal["pending", "done", "failed", "deferred"] = "pending"
+    error: Optional[str] = None
+    completed_on: Optional[str] = None
+
+
+class QueueFile(BaseModel):
+    """Container for the full processing queue."""
+
+    schema_version: int = 1
+    items: list[QueueItem] = Field(default_factory=list)
+
+
+class RunReport(BaseModel):
+    """Post-run report written by the orchestrator."""
+
+    slug: str
+    status: Literal["success", "partial", "failed"]
+    exit_code: int = 0
+    stages_completed: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    duration_sec: Optional[float] = None
+    source_sha256: Optional[str] = None
+    output_files: list[str] = Field(default_factory=list)
+    publish_results: dict = Field(default_factory=dict)

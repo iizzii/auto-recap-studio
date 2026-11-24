@@ -1,0 +1,39 @@
+# Media files — never commit
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.webm
+*.ogg
+
+# Working directories
+/tmp
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Downloaded fonts (cached, not committed)
+assets/fonts/*.ttf
+assets/fonts/*.otf
+!assets/fonts/.gitkeep

@@ -1,0 +1,4 @@
+{
+  "tracks": [],
+  "_comment": "Add CC0/royalty-free BGM tracks here. When empty, FFmpeg lavfi synth pads are used as fallback."
+}

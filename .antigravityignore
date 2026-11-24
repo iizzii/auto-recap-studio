@@ -1,0 +1,29 @@
+# Media, FFmpeg renders & channel assets
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+*.gif
+output/
+renders/
+frames/
+assets/generated/
+
+# Python, dependencies & scraper caches
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+logs/
+*.log
+*.csv
+scraped_jobs/

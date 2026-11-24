@@ -1,0 +1,48 @@
+name: Rights Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Project slug to validate (required unless create_template is true)"
+        required: false
+        type: string
+      create_template:
+        description: "Print a blank rights.json template instead of validating"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  rights-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      SLUG: ${{ inputs.slug }}
+      CREATE_TEMPLATE: ${{ inputs.create_template }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create rights template
+        if: env.CREATE_TEMPLATE == 'true'
+        run: |
+          echo "## Rights Template" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          python scripts/make_rights_template.py >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate rights for project
+        if: env.CREATE_TEMPLATE != 'true'
+        run: python main.py rights --slug "$SLUG"

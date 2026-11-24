@@ -110,10 +110,13 @@ def verify_beats(
             )
             parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg"))
 
-        for attempt in range(3):
+        models_to_try = [model_name] + [
+            m for m in ("gemini-3.8-flash-lite", "gemini-2.5-flash-lite") if m != model_name
+        ]
+        for m_idx, cur_model in enumerate(models_to_try):
             try:
                 resp = client.models.generate_content(
-                    model=model_name,
+                    model=cur_model,
                     contents=parts,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -126,8 +129,8 @@ def verify_beats(
                     results[bid] = b_res.get("candidates", [])
                 break
             except Exception as exc:
-                log.warning("Vision batch attempt %d failed: %s", attempt + 1, exc)
-                time.sleep(sleep_sec * (2**attempt))
+                log.warning("Vision batch model %s failed: %s", cur_model, str(exc)[:120])
+                time.sleep(sleep_sec * (m_idx + 1))
 
         if start + batch_size < len(beats):
             time.sleep(sleep_sec)

@@ -44,32 +44,35 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
-        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=120_000))
-        model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
+        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
+        primary_model = str(llm_cfg.get("model", "gemini-3.8-flash"))
+        models_to_try = [primary_model] + [
+            m for m in ("gemini-3.8-flash-lite", "gemini-2.5-flash-lite") if m != primary_model
+        ]
         last_exc: Exception | None = None
-        for attempt in range(4):
-            try:
-                resp = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=temperature,
-                        response_mime_type="application/json",
-                        thinking_config=types.ThinkingConfig(thinking_budget=0),
-                    ),
-                )
-                return resp.text or ""
-            except Exception as exc:
-                last_exc = exc
-                msg = str(exc)
-                transient = ("429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "timed out")
-                if any(code in msg for code in transient) and attempt < 3:
-                    sleep_s = 5.0 * (2**attempt)
-                    log.warning("Gemini API transient error (attempt %d/4): %s; retrying in %.0fs", attempt + 1, msg[:120], sleep_s)
-                    time.sleep(sleep_s)
-                    continue
-                raise
-        raise RuntimeError(f"Gemini API failed: {last_exc}")
+        for model_name in models_to_try:
+            for attempt in range(2):
+                try:
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=temperature,
+                            response_mime_type="application/json",
+                            thinking_config=types.ThinkingConfig(thinking_budget=0),
+                        ),
+                    )
+                    return resp.text or ""
+                except Exception as exc:
+                    last_exc = exc
+                    msg = str(exc)
+                    transient = ("429", "404", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "timed out")
+                    if any(code in msg for code in transient):
+                        log.warning("Gemini model %s error (attempt %d/2): %s", model_name, attempt + 1, msg[:120])
+                        time.sleep(3.0 * (attempt + 1))
+                        continue
+                    raise
+        raise RuntimeError(f"Gemini API failed across {models_to_try}: {last_exc}")
 
     if provider == "openai_compatible":
         from openai import OpenAI

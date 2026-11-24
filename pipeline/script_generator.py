@@ -47,11 +47,11 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
         primary_model = str(llm_cfg.get("model", "gemini-3.8-flash"))
         models_to_try = [primary_model] + [
-            m for m in ("gemini-3.5-flash-lite",) if m != primary_model
+            m for m in ("gemini-3.5-flash-lite", "gemini-3.5-flash") if m != primary_model
         ]
         last_exc: Exception | None = None
         for model_name in models_to_try:
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     resp = client.models.generate_content(
                         model=model_name,
@@ -65,10 +65,14 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
                 except Exception as exc:
                     last_exc = exc
                     msg = str(exc)
-                    transient = ("429", "404", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "timed out")
+                    if "404" in msg or "NOT_FOUND" in msg:
+                        log.warning("Gemini model %s not found; trying next fallback.", model_name)
+                        break
+                    transient = ("429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "timed out")
                     if any(code in msg for code in transient):
-                        log.warning("Gemini model %s error (attempt %d/2): %s", model_name, attempt + 1, msg[:120])
-                        time.sleep(3.0 * (attempt + 1))
+                        sleep_s = 10.0 * (attempt + 1)
+                        log.warning("Gemini model %s transient error (attempt %d/3): %s; retrying in %.0fs", model_name, attempt + 1, msg[:100], sleep_s)
+                        time.sleep(sleep_s)
                         continue
                     raise
         raise RuntimeError(f"Gemini API failed across {models_to_try}: {last_exc}")

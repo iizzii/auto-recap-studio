@@ -92,7 +92,7 @@ def verify_beats(
     model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
     sys_prompt = (_PROMPTS_DIR / "vision_shot_verifier.txt").read_text(encoding="utf-8")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
     results: dict[int, list[dict[str, Any]]] = {}
 
     for start in range(0, len(beats), batch_size):

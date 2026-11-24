@@ -44,7 +44,7 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
         model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
         last_exc: Exception | None = None
         for attempt in range(4):

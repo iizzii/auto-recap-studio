@@ -44,7 +44,7 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
-        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
+        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=120_000))
         model_name = str(llm_cfg.get("model", "gemini-3.8-flash"))
         last_exc: Exception | None = None
         for attempt in range(4):
@@ -61,7 +61,8 @@ def _call_llm(prompt: str, config: dict[str, Any]) -> str:
             except Exception as exc:
                 last_exc = exc
                 msg = str(exc)
-                if any(code in msg for code in ("429", "503", "UNAVAILABLE", "RESOURCE_EXHAUSTED")) and attempt < 3:
+                transient = ("429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "DEADLINE_EXCEEDED", "timed out")
+                if any(code in msg for code in transient) and attempt < 3:
                     sleep_s = 5.0 * (2**attempt)
                     log.warning("Gemini API transient error (attempt %d/4): %s; retrying in %.0fs", attempt + 1, msg[:120], sleep_s)
                     time.sleep(sleep_s)

@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "project_slug": "big_buck_bunny_08",
+  "style": "commentary",
+  "part_number": 0,
+  "title": "A giant rabbit takes brutal revenge on a tormenting rodent #shorts",
+  "banner_text": "THE GIANT RABBIT STRIKES BACK",
+  "description": "After a cruel flying squirrel destroys his peaceful forest home, a massive and determined rabbit seeks absolute revenge using traps and overwhelming force.",
+  "hashtags": [
+    "#BigBuckBunny",
+    "#Animation",
+    "#Shorts",
+    "#Revenge",
+    "#ClassicAnimation"
+  ],
+  "source_title": "Big Buck Bunny",
+  "attribution_block": "Source: \"Big Buck Bunny\" by Unknown (2008), CC BY (http://creativecommons.org/licenses/by/3.0/). Original: https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4. Narration, selection, editing, and commentary created for this channel. Narration generated with text-to-speech.",
+  "beats": [
+    {
+      "beat_id": 1,
+      "narration": "A giant woodland rabbit enjoys a quiet forest until a reckless rodent ruins his peaceful morning.",
+      "source_window_start_sec": 20.0,
+      "source_window_end_sec": 45.0,
+      "visual_cue": "A large fluffy rabbit eating fruit in a sunny clearing.",
+      "mood": "hook",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 2,
+      "narration": "Bright color saturation highlights every lush green leaf before any chaotic conflict actually begins unfolding.",
+      "source_window_start_sec": 45.0,
+      "source_window_end_sec": 70.0,
+      "visual_cue": "Close up on the rabbit bouncing happily.",
+      "mood": "calm",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 3,
+      "narration": "A tiny flying squirrel appears from the canopy and immediately begins terrorizing innocent butterflies.",
+      "source_window_start_sec": 70.0,
+      "source_window_end_sec": 100.0,
+      "visual_cue": "A small squirrel throwing nuts at fluttering insects.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 4,
+      "narration": "The mischievous pest spots a helpless butterfly and crushes it without a second thought.",
+      "source_window_start_sec": 100.0,
+      "source_window_end_sec": 130.0,
+      "visual_cue": "The squirrel laughing atop a squished flower.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 5,
+      "narration": "This malicious escalation turns a simple prank into a direct assault on the forest ecosystem.",
+      "source_window_start_sec": 130.0,
+      "source_window_end_sec": 160.0,
+      "visual_cue": "Pan across devastated flowers and falling petals.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 6,
+      "narration": "The enraged rabbit watches the destruction unfold and vows to deliver instant payback.",
+      "source_window_start_sec": 160.0,
+      "source_window_end_sec": 190.0,
+      "visual_cue": "The giant rabbit staring with narrowed eyes.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 7,
+      "narration": "Two dimwitted rodent sidekicks join the fray to help their cruel leader cause more chaos.",
+      "source_window_start_sec": 190.0,
+      "source_window_end_sec": 220.0,
+      "visual_cue": "Two small rodents rolling rocks down a hill.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 8,
+      "narration": "A falling boulder crashes downward, narrowly missing the giant rabbit in a terrifying ambush.",
+      "source_window_start_sec": 220.0,
+      "source_window_end_sec": 250.0,
+      "visual_cue": "A massive stone smashing into the ground.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 9,
+      "narration": "Exaggerated cartoon proportions amplify the physical comedy during these high speed chase sequences.",
+      "source_window_start_sec": 250.0,
+      "source_window_end_sec": 280.0,
+      "visual_cue": "Dust cloud clearing to reveal the shaken rabbit.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 10,
+      "narration": "Instead of running away, the massive rabbit begins constructing an elaborate network of traps.",
+      "source_window_start_sec": 280.0,
+      "source_window_end_sec": 310.0,
+      "visual_cue": "The rabbit tying heavy ropes around tree trunks.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 11,
+      "narration": "Sharp spikes and heavy wooden beams are assembled into a brutal obstacle course.",
+      "source_window_start_sec": 310.0,
+      "source_window_end_sec": 340.0,
+      "visual_cue": "Close up on sharpened bamboo stakes swinging in the wind.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 12,
+      "narration": "The flying squirrel leads his gang right into the danger zone, completely unaware of the peril.",
+      "source_window_start_sec": 340.0,
+      "source_window_end_sec": 370.0,
+      "visual_cue": "The squirrel marching blindly through the underbrush.",
+      "mood": "cliffhanger",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 13,
+      "narration": "The first trap springs instantly, sending one henchman flying high into the cloudy sky.",
+      "source_window_start_sec": 370.0,
+      "source_window_end_sec": 400.0,
+      "visual_cue": "A spring-loaded branch launching a rodent upward.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 14,
+      "narration": "Heavy fruit drops with crushing force, trapping the second minion beneath a wooden barrel.",
+      "source_window_start_sec": 400.0,
+      "source_window_end_sec": 430.0,
+      "visual_cue": "A wooden barrel slamming down over a struggling rodent.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 15,
+      "narration": "Playful sound effects maximize the comedic weight behind every sudden mechanical collision.",
+      "source_window_start_sec": 430.0,
+      "source_window_end_sec": 470.0,
+      "visual_cue": "The squirrel frantically running in circles.",
+      "mood": "reveal",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 16,
+      "narration": "The giant rabbit corners the villain and delivers a final, humiliating punishment that restores peace.",
+      "source_window_start_sec": 470.0,
+      "source_window_end_sec": 520.0,
+      "visual_cue": "The rabbit standing victorious over the defeated squirrel.",
+      "mood": "reveal",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    }
+  ],
+  "shots": []
+}

@@ -1,0 +1,39 @@
+{
+  "slug": "big_buck_bunny_08",
+  "status": "success",
+  "exit_code": 0,
+  "stages_completed": [
+    "rights_guard",
+    "source_fetcher",
+    "subtitles",
+    "script",
+    "tts",
+    "clip_selector",
+    "captions",
+    "audio_mixer",
+    "video_composer",
+    "qa_gate",
+    "publish"
+  ],
+  "warnings": [
+    "Integrated loudness -99.00 LUFS differs from target -14.0."
+  ],
+  "errors": [],
+  "duration_sec": 331.24,
+  "source_sha256": "46f62396c755e1ed0ab856a1521378d54196e125ef1a1643a199af087a15046b",
+  "output_files": [
+    "/tmp/recap_work/big_buck_bunny_08/output/final_short.mp4",
+    "/tmp/recap_work/big_buck_bunny_08/output/metadata.json",
+    "/tmp/recap_work/big_buck_bunny_08/output/qa_report.json",
+    "/tmp/recap_work/big_buck_bunny_08/output/thumbnail.jpg"
+  ],
+  "publish_results": {
+    "telegram": {
+      "status": "sent",
+      "video_mb": 28.2,
+      "github_url": "https://github.com/iizzii/auto-recap-studio/actions/runs/45692608018"
+    }
+  },
+  "deinterlace_applied": false,
+  "bgm_mood": null
+}

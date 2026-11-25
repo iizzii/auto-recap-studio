@@ -1,4 +1,18 @@
 {
   "schema_version": 1,
-  "items": []
+  "items": [
+    {
+      "slug": "big_buck_bunny_08",
+      "video_source_url": "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4",
+      "srt_source_url": null,
+      "style": "commentary",
+      "split_part": 0,
+      "max_duration": 175,
+      "publish_target": "artifact_only",
+      "auto_approve": false,
+      "status": "pending",
+      "error": null,
+      "completed_on": null
+    }
+  ]
 }

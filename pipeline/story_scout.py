@@ -310,7 +310,7 @@ def validate_candidate(
     if not video_url:
         return False, "no video_url"
     if not mock_http:
-        ok, size = _head_check(video_url)
+        ok, _size = _head_check(video_url)
         if not ok:
             return False, f"HEAD check failed or size out of range for {video_url}"
 

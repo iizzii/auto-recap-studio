@@ -85,7 +85,12 @@ def _synthesize_raw_beat(
                     exc,
                 )
                 time.sleep(sleep_s)
-        raise RuntimeError(f"edge-tts failed for beat {beat.beat_id}: {last_exc}")
+        log.warning(
+            "edge-tts failed for beat %d (%s); falling back to synthetic tone.",
+            beat.beat_id,
+            last_exc,
+        )
+        return _synthesize_raw_beat(beat, raw_path, config, mock_tts=True)
 
     if backend == "elevenlabs":
         api_key = os.environ.get("ELEVENLABS_API_KEY", "")

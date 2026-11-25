@@ -14,6 +14,7 @@ import boto3
 import cv2
 import requests
 
+from pipeline import ffutil
 from pipeline.models import ApprovalRecord, ProjectManifest, QueueFile, RightsRecord, Shot
 
 log = logging.getLogger(__name__)
@@ -150,8 +151,47 @@ def _publish_telegram(
             r.raise_for_status()
 
     size_mb = final_mp4.stat().st_size / (1024 * 1024)
+    upload_mp4 = final_mp4
+    if size_mb > max_mb:
+        # Re-encode a Telegram-sized copy targeting ~90% of max_mb so sendVideo succeeds
+        dur = max(1.0, ffutil.duration(final_mp4))
+        target_total_kbps = int(((max_mb * 0.88) * 8 * 1024) / dur)
+        audio_kbps = 128
+        video_kbps = max(400, target_total_kbps - audio_kbps)
+        tg_copy = final_mp4.parent.parent / "telegram_upload.mp4"
+        ffutil.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(final_mp4),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-b:v",
+                f"{video_kbps}k",
+                "-maxrate",
+                f"{int(video_kbps * 1.15)}k",
+                "-bufsize",
+                f"{video_kbps * 2}k",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                f"{audio_kbps}k",
+                "-movflags",
+                "+faststart",
+                str(tg_copy),
+            ]
+        )
+        if tg_copy.exists() and tg_copy.stat().st_size / (1024 * 1024) <= max_mb:
+            upload_mp4 = tg_copy
+            size_mb = upload_mp4.stat().st_size / (1024 * 1024)
+
     if size_mb <= max_mb:
-        with final_mp4.open("rb") as fh:
+        with upload_mp4.open("rb") as fh:
             r = requests.post(
                 f"{base}/sendVideo",
                 data={"chat_id": chat_id, "caption": meta["title"][:1024]},

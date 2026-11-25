@@ -388,6 +388,26 @@ def scout(
             f"tech={c['tech_score']} + story={c['story_score']} = {c['total_score']}/100"
         )
 
+    if auto_produce and not rep.get("is_pd"):
+        w = rep["winner"]
+        typer.echo(f"Auto-producing #1 winner: {rep['winner_slug']}...")
+        run(
+            config=Path("config.yaml"),
+            slug=rep["winner_slug"],
+            video_source=w["video_url"],
+            srt_source=w.get("srt_url") or None,
+            mode="full_auto",
+            style="commentary",
+            publish_target="artifact_only",
+            mock_llm=mock_llm,
+            mock_tts=False,
+            mock_vision=False,
+            force=True,
+            split_part=0,
+            max_duration=175,
+            allow_reproduce=False,
+        )
+
 
 @app.command(name="mark-published")
 def mark_published(

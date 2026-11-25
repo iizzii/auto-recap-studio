@@ -85,8 +85,14 @@ def make_slug(title: str, year: int | None = None) -> str:
 
 def _ia_search(query: str, rows: int = 20) -> list[dict[str, Any]]:
     """Search Archive.org for open-license animation/movie items."""
+    base_filter = (
+        "mediatype:movies AND "
+        "(subject:animation OR subject:cartoon OR collection:animationandcartoons OR collection:classic_cartoons) AND "
+        "(licenseurl:creativecommons OR licenseurl:publicdomain OR licenseurl:creativecommons.org/publicdomain)"
+    )
+    q_str = f"({query}) AND {base_filter}" if query.strip() else base_filter
     params = {
-        "q": f"({query}) AND mediatype:movies AND (subject:animation OR subject:cartoon OR collection:animationandcartoons OR collection:classic_cartoons) AND (licenseurl:creativecommons OR licenseurl:publicdomain OR licenseurl:creativecommons.org/publicdomain)",
+        "q": q_str,
         "fl[]": "identifier,title,description,year,licenseurl,subject,downloads",
         "sort[]": "downloads desc",
         "rows": rows,
@@ -142,8 +148,18 @@ def _pick_best_video_and_srt(files: list[dict[str, Any]], item_id: str) -> tuple
 
 def _head_check(url: str, min_mb: float = 10.0, max_gb: float = 3.5) -> tuple[bool, int]:
     """Return (ok, size_bytes). ok=False if unreachable or out of size range."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; AutoRecapStudio/1.0)"}
     try:
-        r = requests.head(url, timeout=15, allow_redirects=True)
+        r = requests.head(url, headers=headers, timeout=15, allow_redirects=True)
+        if r.status_code in (403, 405):
+            r = requests.get(
+                url,
+                headers={**headers, "Range": "bytes=0-0"},
+                timeout=15,
+                stream=True,
+                allow_redirects=True,
+            )
+            r.close()
         if r.status_code not in range(200, 400):
             return False, 0
         size = int(r.headers.get("content-length", 0))

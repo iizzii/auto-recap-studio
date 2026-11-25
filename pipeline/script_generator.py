@@ -430,6 +430,17 @@ def generate_or_load_script(
                 )
                 return manifest, warnings
             last_errors = errors
+            # Enrich feedback with exact counts/windows so smaller models fix violations in 1 retry
+            n_b = len(manifest.beats)
+            min_comm = max(1, int(-(-n_b * float(script_cfg.get("min_commentary_share", 0.25)) // 1)))
+            if any("Commentary share" in e for e in errors):
+                last_errors.append(
+                    f"Action: Change at least {min_comm} of your {n_b} beats to kind='commentary'."
+                )
+            if any("overlaps previous beat" in e or "chronological order" in e for e in errors):
+                last_errors.append(
+                    "Action: Make each beat's source_window_start_sec >= previous beat's source_window_end_sec - 1.0."
+                )
         except Exception as exc:
             last_errors = [f"JSON/Schema error on attempt {attempt}: {exc}"]
         log.warning("Script attempt %d failed: %s", attempt, last_errors)

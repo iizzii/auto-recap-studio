@@ -90,10 +90,17 @@ class ScriptDraftResponse(BaseModel):
     beats: list[BeatDraft]
 
 
-def _normalize_manifest_data(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize common LLM mood/kind synonym drift and zero-length windows."""
-    for beat in data.get("beats", []):
+def _normalize_manifest_data(
+    data: dict[str, Any],
+    allowed_range: tuple[float, float] | None = None,
+) -> dict[str, Any]:
+    """Normalize common LLM mood/kind synonym drift and enforce valid monotonic windows."""
+    min_a, max_a = allowed_range if allowed_range else (0.0, 1e9)
+    prev_start = min_a
+    prev_end = min_a
+    for idx, beat in enumerate(data.get("beats", [])):
         if isinstance(beat, dict):
+            beat["beat_id"] = idx + 1
             raw_mood = str(beat.get("mood", "action")).strip().lower()
             beat["mood"] = _MOOD_SYNONYMS.get(raw_mood, raw_mood)
             raw_kind = str(beat.get("kind", "story")).strip().lower()
@@ -101,10 +108,16 @@ def _normalize_manifest_data(data: dict[str, Any]) -> dict[str, Any]:
                 beat["kind"] = "story"
             else:
                 beat["kind"] = raw_kind
-            s_val = float(beat.get("source_window_start_sec", 0.0))
-            e_val = float(beat.get("source_window_end_sec", 0.0))
-            if e_val <= s_val:
-                beat["source_window_end_sec"] = round(s_val + 5.0, 2)
+            s_val = float(beat.get("source_window_start_sec", prev_end))
+            e_val = float(beat.get("source_window_end_sec", s_val + 5.0))
+            if idx > 0:
+                s_val = max(s_val, prev_start, prev_end - 1.0)
+            s_val = max(min_a, min(s_val, max_a - 2.0))
+            e_val = min(max_a, max(e_val, s_val + 2.0))
+            beat["source_window_start_sec"] = round(s_val, 2)
+            beat["source_window_end_sec"] = round(e_val, 2)
+            prev_start = s_val
+            prev_end = e_val
     return data
 
 
@@ -423,7 +436,7 @@ def generate_or_load_script(
         )
         try:
             data = json.loads(_strip_json_fences(best_raw))
-            data = _normalize_manifest_data(data)
+            data = _normalize_manifest_data(data, allowed_range)
             data["schema_version"] = 1
             data["project_slug"] = slug
             data["style"] = style

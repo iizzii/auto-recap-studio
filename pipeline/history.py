@@ -8,7 +8,7 @@ import logging
 import re
 from pathlib import Path
 
-from pipeline.models import HistoryRecord, PublishedHistory
+from pipeline.models import HistoryRecord, PlatformStatus, PublishedHistory
 
 log = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ def mark_published(
             updated_at=now,
         )
         history.records.append(rec)
-    ps = rec.platforms.setdefault(platform, type(list(rec.platforms.values())[0])())  # PlatformStatus
+    ps = rec.platforms.setdefault(platform, PlatformStatus())
     ps.published = True
     ps.url = url or ps.url
     ps.published_at = now

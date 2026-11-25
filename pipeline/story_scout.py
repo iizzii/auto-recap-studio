@@ -253,7 +253,7 @@ def _llm_story_scores(candidates: list[dict[str, Any]], gemini_api_key: str) -> 
             f"{system_prompt}\n\nCANDIDATES:\n{payload}",
             generation_config={"temperature": 0.3},
         )
-        raw = resp.text.strip().lstrip("```json").rstrip("```").strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", resp.text.strip())
         data = json.loads(raw)
         scores = data.get("scores", [])
         result = []

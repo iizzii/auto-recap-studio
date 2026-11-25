@@ -196,7 +196,7 @@ def generate_captions(
         k_parts: list[str] = []
         for word, ws, we in chunk:
             dur_cs = max(5, int(round((we - ws) * 100)))
-            k_parts.append(f"{{\\kf{dur_cs}}}{word}")
+            k_parts.append(f"{{\\k{dur_cs}}}{word.upper()}")
         text_line = " ".join(k_parts)
         events.append(
             f"Dialogue: 0,{_ass_time(c_start)},{_ass_time(c_end)},Default,,0,0,0,,{text_line}"

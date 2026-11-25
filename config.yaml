@@ -16,7 +16,7 @@ rights:
 source:
   max_source_gb: 6
   exclude_head_sec: 20
-  exclude_tail_pct: 8
+  exclude_tail_pct: 15
   auto_transcribe_source: true
   whisper_model_fallback: small.en
   subtitle_language: en
@@ -34,10 +34,10 @@ llm:
 
 script:
   style: commentary
-  min_words: 360
+  min_words: 300
   max_words: 430
-  min_beats: 18
-  max_beats: 26
+  min_beats: 14
+  max_beats: 24
   beat_min_words: 12
   beat_max_words: 28
   min_commentary_share: 0.25

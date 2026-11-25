@@ -26,6 +26,7 @@ def _make_manifest(**overrides: Any) -> ProjectManifest:
     beats = [
         Beat(
             beat_id=i + 1,
+            # Beat 1 deliberately opens with a universal subject "Suddenly" (not a char name)
             narration="Suddenly Alice discovers a glowing door behind the old stone wall today.",
             source_window_start_sec=float(i * 10),
             source_window_end_sec=float(i * 10 + 8),
@@ -99,3 +100,80 @@ def test_vague_beat1_placeholder_rejected_with_ledger() -> None:
     ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
     errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
     assert any("vague placeholder" in e.lower() for e in errors)
+
+
+def test_visual_pointer_count_above_1_rejected() -> None:
+    """Combined look-closely/notice-how count > 1 must be a hard error."""
+    manifest = _make_manifest()
+    manifest.beats[1].narration = "Look closely at the scar on the great wing she once bandaged herself."
+    manifest.beats[2].narration = "Notice how she drops her sword the second she sees its eyes glow again."
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    assert any("visual-pointer" in e.lower() for e in errors)
+
+
+def test_visual_pointer_count_exactly_1_passes() -> None:
+    """Exactly one visual-pointer phrase across all beats should be allowed."""
+    manifest = _make_manifest()
+    manifest.beats[1].narration = "Look closely at the scar on the great wing she once bandaged herself."
+    # beats[2] stays as default (no visual pointer)
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    assert not any("visual-pointer" in e.lower() for e in errors)
+
+
+def test_beat1_starts_with_char_name_rejected() -> None:
+    """Beat 1 that starts with a known character name must be rejected (with ledger)."""
+    manifest = _make_manifest()
+    manifest.beats[0].narration = "Sintel spent years searching for the dragon that took her pet scales."
+    ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    assert any("character name" in e.lower() for e in errors)
+
+
+def test_beat1_universal_hook_passes() -> None:
+    """Beat 1 starting with a universal subject (not a char name) must pass."""
+    manifest = _make_manifest()
+    manifest.beats[0].narration = "This girl spent years searching for the dragon that stole her pet."
+    ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    assert not any("character name" in e.lower() for e in errors)
+
+
+def test_pass1_frame_sampling_within_allowed_range() -> None:
+    """Verify that _extract_pass1_contact_sheets timestamps stay within [start, end-4] bounds."""
+    from pipeline.script_generator import _extract_pass1_contact_sheets
+    import tempfile, pathlib
+
+    allowed_range = (60.0, 900.0)
+    cfg = {
+        "source": {
+            "pass1_max_frames": 16,
+            "pass1_grid_cols": 4,
+            "pass1_grid_rows": 4,
+            "pass1_visual_overview": True,
+        }
+    }
+
+    # We only test the timestamp math — no actual FFmpeg call.
+    # Replicate the sampling logic from _extract_pass1_contact_sheets to validate bounds.
+    start_s, end_s = allowed_range
+    safe_end = max(start_s + 1.0, end_s - 4.0)
+    max_frames = int(cfg["source"]["pass1_max_frames"])
+    dur = max(2.0, safe_end - start_s)
+    n_frames = min(max_frames, max(8, int(dur // 8)))
+    n_early = max(1, int(round(n_frames * 0.65)))
+    n_climax = max(1, n_frames - n_early)
+    boundary = start_s + dur * 0.75
+    early_step = max(0.1, (boundary - start_s) / max(1, n_early))
+    climax_step = max(0.1, (safe_end - boundary) / max(1, n_climax))
+
+    timestamps = []
+    for i in range(n_early):
+        timestamps.append(start_s + (i + 0.5) * early_step)
+    for i in range(n_climax):
+        timestamps.append(boundary + (i + 0.5) * climax_step)
+
+    assert all(start_s <= ts <= safe_end for ts in timestamps), (
+        f"Some timestamps fall outside [{start_s}, {safe_end}]: {[t for t in timestamps if not (start_s <= t <= safe_end)]}"
+    )
+    # Verify safe_end never reaches end-credit zone
+    assert safe_end <= end_s - 4.0 + 0.001

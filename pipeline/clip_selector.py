@@ -284,6 +284,101 @@ def select_shots(
             mock_vision=mock_vision,
         )
 
+    # Expanded-window fallback: if ALL initial candidates scored below min_match_score,
+    # do one additional ±8s search (clamped to allowed_range, respecting never_reuse_source_range)
+    if vision_enabled:
+        expand_proxies_dir = proxy_dir / "expand"
+        expand_proxies_dir.mkdir(parents=True, exist_ok=True)
+        for beat in manifest.beats:
+            cands = beat_candidates[beat.beat_id]
+            v_list = vision_scores.get(beat.beat_id, [])
+            best_score = max(
+                (float(v_list[i]["score"]) for i in range(len(v_list))), default=0.0
+            )
+            if best_score >= min_match_score:
+                continue  # already have a good candidate; no need to expand
+
+            expand_start = max(min_allowed, beat.source_window_start_sec - 8.0)
+            expand_end = min(max_allowed, beat.source_window_end_sec + 8.0)
+            if expand_end - expand_start < 4.0:
+                continue
+
+            exp_proxy_path = expand_proxies_dir / f"beat_{beat.beat_id:03d}_expand.mp4"
+            exp_dur = max(2.0, expand_end - expand_start)
+            try:
+                _extract_proxy(source_path, expand_start, exp_dur, exp_proxy_path, height=proxy_h)
+            except Exception:
+                continue
+
+            exp_video = open_video(str(exp_proxy_path))
+            exp_scene_mgr = SceneManager()
+            exp_scene_mgr.add_detector(ContentDetector(threshold=scene_thresh))
+            exp_scene_mgr.detect_scenes(exp_video)
+            exp_scenes = exp_scene_mgr.get_scene_list()
+            exp_spans: list[tuple[float, float]] = []
+            if exp_scenes:
+                for sc_start, sc_end in exp_scenes:
+                    s0 = sc_start.get_seconds()
+                    s1 = sc_end.get_seconds()
+                    if s1 - s0 >= 1.5:
+                        exp_spans.append((s0, s1))
+            if not exp_spans:
+                step = max(2.0, exp_dur / max(1, candidates_limit))
+                t = 0.0
+                while t < exp_dur - 1.0:
+                    exp_spans.append((t, min(exp_dur, t + step)))
+                    t += step
+
+            exp_cap = cv2.VideoCapture(str(exp_proxy_path))
+            exp_cands: list[dict[str, Any]] = []
+            try:
+                for rel_s, rel_e in exp_spans:
+                    luma, luma_std, motion = _score_proxy_segment(exp_cap, rel_s, rel_e, sample_fps)
+                    if luma < min_luma or luma_std < min_luma_std:
+                        continue
+                    abs_s = expand_start + rel_s
+                    abs_e = expand_start + rel_e
+                    # Exclude spans that are simply part of the original window (already tried)
+                    orig_win_s = max(min_allowed, beat.source_window_start_sec - 5.0)
+                    orig_win_e = min(max_allowed, beat.source_window_end_sec + 5.0)
+                    if abs_s >= orig_win_s and abs_e <= orig_win_e:
+                        continue
+                    minute_idx = min(len(speech_density) - 1, max(0, int(abs_s // 60))) if speech_density else -1
+                    density = speech_density[minute_idx] if minute_idx >= 0 else 0.0
+                    penalty = 0.0 if beat.mood in ("emotional", "reveal") else density * 1.5
+                    exp_cands.append(
+                        {
+                            "start": abs_s,
+                            "end": abs_e,
+                            "motion": motion,
+                            "heuristic": motion - penalty,
+                        }
+                    )
+            finally:
+                exp_cap.release()
+
+            if exp_cands:
+                exp_cands.sort(key=lambda c: c["heuristic"], reverse=True)
+                for cand in exp_cands[:candidates_limit]:
+                    cand["frames"] = _sample_three_frames(source_path, cand["start"], cand["end"])
+                # Append expanded candidates and re-run vision on them
+                new_cands = cands + exp_cands[:candidates_limit]
+                beat_candidates[beat.beat_id] = new_cands
+                exp_beat_cands = {beat.beat_id: exp_cands[:candidates_limit]}
+                exp_vs = vision_verifier.verify_beats(
+                    [beat], exp_beat_cands, config, mock_vision=mock_vision
+                )
+                # Merge scores: original + expanded
+                orig_scores = vision_scores.get(beat.beat_id, [])
+                vision_scores[beat.beat_id] = orig_scores + exp_vs.get(beat.beat_id, [])
+                log.info(
+                    "Beat %d: expanded ±8s fallback added %d new candidates (best was %.1f < %.1f).",
+                    beat.beat_id,
+                    len(exp_cands[:candidates_limit]),
+                    best_score,
+                    min_match_score,
+                )
+
     def _overlaps(s: float, e: float) -> bool:
         if not never_reuse:
             return False

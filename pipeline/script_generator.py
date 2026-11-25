@@ -136,7 +136,13 @@ def _extract_pass1_contact_sheets(
     work_dir: Path,
     config: dict[str, Any],
 ) -> list[Path]:
-    """Sample evenly spaced frames across *allowed_range* and pack into 1-3 labeled contact sheets."""
+    """Sample climax-weighted frames within *allowed_range* and pack into 1-3 labeled contact sheets.
+
+    Strictly clamps to [allowed_start, max(allowed_start+1.0, allowed_end-4.0)] so we
+    never sample end-credits or tail frames outside what clip_selector is allowed to pick.
+    65% of frames cover the first 75% of allowed_range; 35% densely sample the final 25%
+    (where climax actions and twists unfold rapidly).
+    """
     from PIL import Image, ImageDraw
 
     src_cfg = config.get("source", {})
@@ -145,18 +151,32 @@ def _extract_pass1_contact_sheets(
     rows = int(src_cfg.get("pass1_grid_rows", 4))
     per_sheet = max(1, cols * rows)
 
+    # Strictly clamp the sampling window so we never see tail/credits
     start_s, end_s = allowed_range
-    dur = max(8.0, end_s - start_s)
+    safe_end = max(start_s + 1.0, end_s - 4.0)
+    dur = max(2.0, safe_end - start_s)
     n_frames = min(max_frames, max(8, int(dur // 8)))
-    step = dur / max(1, n_frames)
+
+    # Climax-weighted split: 65% over first 75% of range, 35% over final 25%
+    n_early = max(1, int(round(n_frames * 0.65)))
+    n_climax = max(1, n_frames - n_early)
+    boundary = start_s + dur * 0.75
+
+    early_step = max(0.1, (boundary - start_s) / max(1, n_early))
+    climax_step = max(0.1, (safe_end - boundary) / max(1, n_climax))
+
+    timestamps: list[float] = []
+    for i in range(n_early):
+        timestamps.append(start_s + (i + 0.5) * early_step)
+    for i in range(n_climax):
+        timestamps.append(boundary + (i + 0.5) * climax_step)
 
     sheets_dir = work_dir / "pass1_sheets"
     sheets_dir.mkdir(parents=True, exist_ok=True)
     tile_w, tile_h = 320, 180
     tiles: list[Image.Image] = []
 
-    for i in range(n_frames):
-        ts = start_s + (i + 0.5) * step
+    for ts in timestamps:
         tile_path = sheets_dir / f"tile_{i:03d}.jpg"
         try:
             ffutil.run(

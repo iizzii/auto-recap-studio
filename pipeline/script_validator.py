@@ -41,6 +41,14 @@ _VAGUE_BEAT1_PLACEHOLDERS = (
     "a mysterious stranger",
 )
 
+# Visual-pointer phrases — max 1 combined occurrence allowed across the whole script
+_VISUAL_POINTER_PHRASES = (
+    "look closely",
+    "look at",
+    "notice how",
+    "pay attention",
+)
+
 _PROPER_NOUN_RE = re.compile(r"(?<!^)(?<!\. )(?<!\? )(?<!\! )\b([A-Z][a-z]{2,})\b")
 
 
@@ -101,6 +109,18 @@ def validate_manifest(
                 for vague in _VAGUE_BEAT1_PLACEHOLDERS:
                     if vague in low:
                         errors.append(f"Beat 1 uses vague placeholder '{vague}'; name the character/visual.")
+            # No character name as the very first word of Beat 1
+            first_word = beat.narration.strip().split()[0].rstrip(",.!?") if beat.narration.strip() else ""
+            if ledger:
+                ledger_names: set[str] = set()
+                for ev in ledger.get("events", []):
+                    for ch in ev.get("characters", []):
+                        ledger_names.add(ch.strip().lower())
+                if first_word.lower() in ledger_names and first_word.lower() not in {"a", "the", "this", "that"}:
+                    errors.append(
+                        f"Beat 1 starts with a character name '{first_word}'. "
+                        "Open with a universal hook ('This girl...', 'A lone traveler...', 'After finding...') instead."
+                    )
 
         low_nar = beat.narration.lower()
         for cliche in _BANNED_CLICHES:
@@ -137,6 +157,17 @@ def validate_manifest(
     if not (min_words <= total_words <= max_words):
         errors.append(
             f"Total word count {total_words} out of range [{min_words}, {max_words}]."
+        )
+
+    # Max 1 visual-pointer phrase across the entire script
+    all_narration_lower = " ".join(b.narration.lower() for b in beats)
+    pointer_count = sum(all_narration_lower.count(phrase) for phrase in _VISUAL_POINTER_PHRASES)
+    if pointer_count > 1:
+        errors.append(
+            f"Script uses visual-pointer phrases ('look closely', 'look at', 'notice how', "
+            f"'pay attention') {pointer_count} times total; maximum allowed is 1. "
+            "Rewrite extra commentary beats using natural storytelling pivots "
+            "('The tragic twist is...', 'What she doesn't realize...', 'That single choice...')."
         )
 
     if manifest.style == "commentary" and beats:

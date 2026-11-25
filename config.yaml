@@ -2,7 +2,7 @@ runtime:
   fps: 30
   width: 1080
   height: 1920
-  min_duration_sec: 65
+  min_duration_sec: 70
   max_duration_sec: 175
   work_dir: /tmp/recap_work
   min_free_disk_gb: 4
@@ -123,9 +123,11 @@ captions:
 audio:
   source_audio_mode: "off"
   source_ducked_db: -26
-  bgm_db_below_voice: -22
+  bgm_db_below_voice: -18
   bgm_fade_out_sec: 1.5
   sfx_on_transitions: true
+  sfx_whoosh_db: -14
+  sfx_whoosh_dur_sec: 0.35
   target_lufs: -14
   true_peak_db: -1.0
   sample_rate: 48000

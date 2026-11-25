@@ -54,7 +54,7 @@ def _make_manifest(**overrides: Any) -> ProjectManifest:
 
 def test_valid_manifest_passes() -> None:
     manifest = _make_manifest()
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
     assert errors == []
 
 

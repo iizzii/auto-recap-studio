@@ -64,7 +64,7 @@ def test_banned_opener_rejected() -> None:
         "In this movie Alice discovers a glowing door behind the old stone wall."
     )
     errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
-    assert any("banned opener" in e.lower() for e in errors)
+    assert any("slow/generic setup" in e.lower() for e in errors)
 
 
 def test_low_commentary_share_rejected() -> None:

@@ -1,0 +1,95 @@
+name: Story Scout QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Optional theme/keyword (e.g. sci-fi, fantasy, classic cartoon)"
+        required: false
+        type: string
+        default: ""
+      candidate_count:
+        description: "Number of candidates to score"
+        required: false
+        type: string
+        default: "5"
+      license_scope:
+        description: "Allowed license scope"
+        required: true
+        type: choice
+        default: cc_only
+        options:
+          - cc_only
+          - cc_and_pd
+      auto_produce_winner:
+        description: "Automatically render #1 winner if CC0/CC-BY"
+        required: false
+        type: boolean
+        default: false
+  # schedule:
+  #   - cron: "0 10 * * 1"
+
+jobs:
+  scout-and-produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: write
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache BGM tracks
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/recap_bgm
+          key: recap-bgm-v1
+
+      - name: Run Story Scout QA
+        env:
+          INPUT_QUERY: ${{ inputs.query }}
+          INPUT_COUNT: ${{ inputs.candidate_count }}
+          INPUT_SCOPE: ${{ inputs.license_scope }}
+          INPUT_AUTO: ${{ inputs.auto_produce_winner }}
+        run: |
+          AUTO_FLAG=""
+          if [ "$INPUT_AUTO" = "true" ]; then
+            AUTO_FLAG="--auto-produce"
+          fi
+          python main.py scout \
+            --query "$INPUT_QUERY" \
+            --candidate-count "$INPUT_COUNT" \
+            --license-scope "$INPUT_SCOPE" \
+            $AUTO_FLAG
+
+      - name: Upload winner video artifact (if produced)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: story-scout-output
+          path: /tmp/recap_work/*/output/final_short.mp4
+          if-no-files-found: ignore
+          retention-days: 2
+
+      - name: Commit scout reports, queue, and history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scout_reports/ queue.json published_history.json projects/ || true
+          git diff --cached --quiet || git commit -m "chore(scout): add top-5 story scout report [skip ci]"
+          git push

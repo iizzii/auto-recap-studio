@@ -125,6 +125,8 @@ class RightsRecord(BaseModel):
     license_document_url: Optional[str] = None
     owner_statement: Optional[str] = None
     soundtrack_rights_note: Optional[str] = None
+    exclude_head_sec: Optional[float] = None
+    exclude_tail_sec: Optional[float] = None
     verified_by: str = Field(min_length=1)
     verified_on: str = Field(min_length=1)
 
@@ -148,7 +150,7 @@ class QueueItem(BaseModel):
     max_duration: int = 175
     publish_target: str = "all_private"
     auto_approve: bool = False
-    status: Literal["pending", "done", "failed", "deferred"] = "pending"
+    status: Literal["pending", "done", "failed", "deferred", "awaiting_pd_verification"] = "pending"
     error: Optional[str] = None
     completed_on: Optional[str] = None
 
@@ -173,3 +175,41 @@ class RunReport(BaseModel):
     source_sha256: Optional[str] = None
     output_files: list[str] = Field(default_factory=list)
     publish_results: dict = Field(default_factory=dict)
+    deinterlace_applied: bool = False
+    bgm_mood: Optional[str] = None
+
+
+class PlatformStatus(BaseModel):
+    """Publish status for a single platform."""
+
+    published: bool = False
+    url: Optional[str] = None
+    published_at: Optional[str] = None
+    privacy: Optional[str] = None
+
+
+class HistoryRecord(BaseModel):
+    """One entry in the published-history ledger."""
+
+    slug: str
+    work_title: str
+    normalized_title: str
+    source_id: str = ""
+    source_url: str = ""
+    source_sha256: str = ""
+    status: Literal["rendered", "published_partial", "published_all", "queued", "awaiting_pd_verification"] = "rendered"
+    platforms: dict[str, PlatformStatus] = Field(
+        default_factory=lambda: {
+            "youtube": PlatformStatus(),
+            "instagram": PlatformStatus(),
+        }
+    )
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class PublishedHistory(BaseModel):
+    """Root model for published_history.json."""
+
+    schema_version: int = 1
+    records: list[HistoryRecord] = Field(default_factory=list)

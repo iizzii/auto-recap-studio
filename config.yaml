@@ -16,7 +16,9 @@ rights:
 source:
   max_source_gb: 6
   exclude_head_sec: 20
-  exclude_tail_pct: 15
+  exclude_tail_pct: 3
+  auto_detect_end_credits: true
+  max_auto_credit_tail_pct: 20
   auto_transcribe_source: true
   whisper_model_fallback: small.en
   subtitle_language: en
@@ -92,6 +94,9 @@ layout:
   fg_zoom_pct: 2
   min_fg_height_px: 760
   max_horizontal_crop_pct: 42
+  auto_deinterlace: true
+  combing_threshold: 1.35
+  overscan_trim_pct: 3.0
   banner:
     enabled: true
     y: 200
@@ -123,10 +128,10 @@ captions:
 audio:
   source_audio_mode: "off"
   source_ducked_db: -26
-  bgm_db_below_voice: -16
+  bgm_db_below_voice: -21
   bgm_fade_out_sec: 1.5
   sfx_on_transitions: true
-  sfx_whoosh_db: -14
+  sfx_whoosh_db: -16
   sfx_whoosh_dur_sec: 0.35
   target_lufs: -14
   true_peak_db: -1.0

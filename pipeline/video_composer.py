@@ -9,7 +9,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from pipeline import ffutil
+from pipeline import deinterlace, ffutil
 from pipeline.models import ProjectManifest, Shot
 
 log = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def _render_single_shot(
     out_mp4: Path,
     config: dict[str, Any],
     src_dims: tuple[int, int] = (1920, 1080),
+    deinterlace_applied: bool = False,
 ) -> Path:
     """Extract, scale/blur/zoom, grade, and frame-lock a single shot intermediate."""
     rt = config.get("runtime", {})
@@ -113,8 +114,11 @@ def _render_single_shot(
         unsharp_str = str(grade.get("unsharp", "3:3:0.3"))
         fg_chain += f",eq={eq_str},unsharp={unsharp_str}"
 
+    pre_filter = deinterlace.build_deinterlace_overscan_filter(config, deinterlace_applied)
+    pre_prefix = f"{pre_filter}," if pre_filter else ""
+
     fc_parts = [
-        f"[0:v]setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,split=2[bg_in][fg_in]",
+        f"[0:v]{pre_prefix}setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,split=2[bg_in][fg_in]",
         f"[bg_in]scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},{bg_blur},eq=brightness={bg_bright}[bg]",
         f"[fg_in]{fg_chain}[fg]",
@@ -205,9 +209,24 @@ def compose_video(
     v_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
     src_dims = (int(v_stream.get("width", 1920)), int(v_stream.get("height", 1080)))
 
+    deinterlace_applied = False
+    if layout.get("auto_deinterlace", True) and shots:
+        sample_ts = [round((s.src_start_sec + s.src_end_sec) * 0.5, 2) for s in shots[:10]]
+        thresh = float(layout.get("combing_threshold", 1.35))
+        deinterlace_applied = deinterlace.detect_combing(source_path, sample_ts, threshold=thresh)
+
     with ThreadPoolExecutor(max_workers=parallel_jobs) as pool:
         futures = [
-            pool.submit(_render_single_shot, s, source_path, banner_png, p, config, src_dims)
+            pool.submit(
+                _render_single_shot,
+                s,
+                source_path,
+                banner_png,
+                p,
+                config,
+                src_dims,
+                deinterlace_applied,
+            )
             for s, p in tasks
         ]
         intermediates = [f.result() for f in futures]

@@ -20,6 +20,7 @@ from pipeline import (
     caption_engine,
     clip_selector,
     ffutil,
+    history,
     publisher,
     qa_gate,
     report,
@@ -27,6 +28,7 @@ from pipeline import (
     script_generator,
     source_fetcher,
     srt_parser,
+    story_scout,
     transcriber,
     tts_engine,
     video_composer,
@@ -107,6 +109,7 @@ def run(
     force: bool = typer.Option(False, "--force", help="Regenerate existing script manifest."),
     split_part: int = typer.Option(0, "--split-part", help="0=full, 1=part1, 2=part2."),
     max_duration: Optional[int] = typer.Option(None, "--max-duration", help="Max duration sec."),
+    allow_reproduce: bool = typer.Option(False, "--allow-reproduce", help="Allow re-producing published story."),
 ) -> None:
     """Execute the 9:16 recap pipeline."""
     t0 = time.monotonic()
@@ -127,6 +130,15 @@ def run(
     # 1. Rights Guard (MUST run before any download)
     strict = bool(cfg.get("rights", {}).get("strict_rights_check", True))
     rights_rec = rights_guard.validate_rights(slug, project_dir, strict=strict)
+
+    # 1b. Published History Duplicate Check (skip for synthetic ci_synth)
+    if slug != "ci_synth":
+        history.check_no_duplicate_or_exit(
+            slug=slug,
+            work_title=rights_rec.work_title,
+            source_url=video_source,
+            allow_reproduce=allow_reproduce,
+        )
     rights_guard.capture_evidence(rights_rec, project_dir, strict=strict)
     run_rep.stages_completed.append("rights_guard")
 
@@ -344,6 +356,67 @@ def status() -> None:
                 has_rights = (p / "rights.json").exists()
                 has_script = (p / "02_script_manifest.json").exists()
                 typer.echo(f"Project {p.name}: rights={has_rights}, script={has_script}")
+
+
+@app.command()
+def scout(
+    query: str = typer.Option("", "--query", help="Optional theme/keyword."),
+    candidate_count: int = typer.Option(5, "--candidate-count", help="Number of candidates to score."),
+    license_scope: str = typer.Option("cc_only", "--license-scope", help="cc_only | cc_and_pd"),
+    auto_produce: bool = typer.Option(False, "--auto-produce", help="Auto-render #1 winner if CC0/CC-BY."),
+    mock_llm: bool = typer.Option(False, "--mock-llm", help="Use deterministic mock LLM scores."),
+) -> None:
+    """Discover, validate, and score top-N free-to-use stories."""
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    rep = story_scout.run_scout(
+        query=query,
+        candidate_count=candidate_count,
+        license_scope=license_scope,
+        mock_llm=mock_llm,
+        mock_http=False,
+        gemini_api_key=gemini_key,
+        auto_produce=auto_produce,
+    )
+    if rep.get("error"):
+        typer.echo(f"Scout error: {rep['error']}")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Winner: {rep['winner_slug']} (score={rep['winner']['total_score']}/100)")
+    for c in rep.get("candidates", []):
+        typer.echo(
+            f"  #{c['rank']} {c['title']} ({c['license_key']}) -> "
+            f"tech={c['tech_score']} + story={c['story_score']} = {c['total_score']}/100"
+        )
+
+
+@app.command(name="mark-published")
+def mark_published(
+    slug: str = typer.Option(..., "--slug", help="Project slug."),
+    platform: str = typer.Option(..., "--platform", help="youtube | instagram | both"),
+    youtube_url: str = typer.Option("", "--youtube-url", help="YouTube URL."),
+    instagram_url: str = typer.Option("", "--instagram-url", help="Instagram URL."),
+) -> None:
+    """Mark a project as published on YouTube and/or Instagram."""
+    h = history.load()
+    if platform in ("youtube", "both"):
+        history.mark_published(h, slug=slug, platform="youtube", url=youtube_url)
+    if platform in ("instagram", "both"):
+        history.mark_published(h, slug=slug, platform="instagram", url=instagram_url)
+    history.save(h)
+    typer.echo(f"Marked '{slug}' as published on {platform}.")
+
+
+@app.command(name="history")
+def show_history() -> None:
+    """Print published/rendered story history summary."""
+    h = history.load()
+    typer.echo(f"Total tracked stories: {len(h.records)}")
+    for r in h.records:
+        yt = r.platforms.get("youtube")
+        ig = r.platforms.get("instagram")
+        yt_s = "YT:yes" if yt and yt.published else "YT:no"
+        ig_s = "IG:yes" if ig and ig.published else "IG:no"
+        typer.echo(f"  - {r.slug} ({r.work_title}) [{r.status}] {yt_s} {ig_s}")
 
 
 if __name__ == "__main__":

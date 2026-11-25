@@ -1,0 +1,69 @@
+name: Mark Published
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Project slug (e.g. sintel_01)"
+        required: true
+        type: string
+      platform:
+        description: "Platform where video was published"
+        required: true
+        type: choice
+        options:
+          - youtube
+          - instagram
+          - both
+      youtube_url:
+        description: "YouTube Shorts URL (optional)"
+        required: false
+        type: string
+        default: ""
+      instagram_url:
+        description: "Instagram Reels URL (optional)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  mark-published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Update published_history.json
+        env:
+          INPUT_SLUG: ${{ inputs.slug }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_YT_URL: ${{ inputs.youtube_url }}
+          INPUT_IG_URL: ${{ inputs.instagram_url }}
+        run: >
+          python main.py mark-published
+          --slug "$INPUT_SLUG"
+          --platform "$INPUT_PLATFORM"
+          --youtube-url "$INPUT_YT_URL"
+          --instagram-url "$INPUT_IG_URL"
+
+      - name: Commit published_history.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add published_history.json
+          git diff --cached --quiet || git commit -m "chore(history): mark $INPUT_SLUG published [skip ci]"
+          git push
+        env:
+          INPUT_SLUG: ${{ inputs.slug }}

@@ -6,7 +6,12 @@ runtime:
 source:
   exclude_head_sec: 0
   exclude_tail_pct: 0
+  auto_detect_end_credits: false
   pass1_visual_overview: false
+
+layout:
+  auto_deinterlace: false
+  overscan_trim_pct: 0.0
 
 shots:
   min_luma_std: 5.0

@@ -384,14 +384,24 @@ def select_shots(
             return False
         return any(min(e, ue) - max(s, us) > 0.25 for us, ue in used_ranges)
 
+    last_selected_src_end: float = float(allowed_range[0])
+
     for beat, shot_frame_list in zip(manifest.beats, planned_frames):
         cands = beat_candidates[beat.beat_id]
         v_list = vision_scores.get(beat.beat_id, [])
-        ranked: list[tuple[float, dict[str, Any], bool]] = []
+        ranked_all: list[tuple[float, dict[str, Any], bool]] = []
         for idx, cand in enumerate(cands):
             v_score = float(v_list[idx]["score"]) if idx < len(v_list) else None
             rank_val = v_score if v_score is not None else cand["heuristic"]
-            ranked.append((rank_val, cand, v_score is not None))
+            ranked_all.append((rank_val, cand, v_score is not None))
+
+        if beat.beat_id > 1:
+            mono_floor = max(beat.source_window_start_sec - 3.0, last_selected_src_end - 2.0)
+            ranked_mono = [r for r in ranked_all if r[1]["start"] >= mono_floor]
+            ranked = ranked_mono if ranked_mono else ranked_all
+        else:
+            ranked = ranked_all
+
         ranked.sort(key=lambda x: x[0], reverse=True)
 
         for s_idx, frames_needed in enumerate(shot_frame_list):
@@ -421,6 +431,7 @@ def select_shots(
             if src_end <= c_start:
                 src_end = c_start + 0.5
             used_ranges.append((c_start, src_end))
+            last_selected_src_end = max(last_selected_src_end, src_end)
 
             flag: str | None = None
             if not has_vision:

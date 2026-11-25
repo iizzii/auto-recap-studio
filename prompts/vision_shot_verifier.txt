@@ -9,4 +9,5 @@ For every candidate return:
 RULES:
 1. Judge only what you can see in the frames.
 2. Be strict: if the visual_cue's key subject or action is absent, score 4 or lower.
-3. Return ONLY valid JSON: {"beats":[{"beat_id":1,"candidates":[{"id":"A","score":7,"matches_cue":true,"problems":[],"note":"..."}]}]}
+3. Score opening title sequences, studio logos, and end-credit frames 0-2 and flag them as "credits" or "text_card" (unless the beat's visual_cue specifically calls for an in-story newspaper headline or sign).
+4. Return ONLY valid JSON: {"beats":[{"beat_id":1,"candidates":[{"id":"A","score":7,"matches_cue":true,"problems":[],"note":"..."}]}]}

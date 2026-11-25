@@ -34,6 +34,11 @@ _BANNED_CLICHES = (
     "masterfully",
     "incredibly intense situation",
     "dialogue reveal",
+    "here's the detail most people miss",
+    "what she doesn't realize yet",
+    "what he doesn't realize yet",
+    "that single choice changes everything",
+    "the tragic twist is",
 )
 
 _VAGUE_BEAT1_PLACEHOLDERS = (

@@ -13,6 +13,7 @@
   "license_document_url": null,
   "owner_statement": null,
   "soundtrack_rights_note": "Source audio is not used.",
+  "exclude_head_sec": 48,
   "verified_by": "operator",
   "verified_on": "2026-11-25"
 }

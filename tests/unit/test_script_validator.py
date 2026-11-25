@@ -140,9 +140,6 @@ def test_beat1_universal_hook_passes() -> None:
 
 def test_pass1_frame_sampling_within_allowed_range() -> None:
     """Verify that _extract_pass1_contact_sheets timestamps stay within [start, end-4] bounds."""
-    from pipeline.script_generator import _extract_pass1_contact_sheets
-    import tempfile, pathlib
-
     allowed_range = (60.0, 900.0)
     cfg = {
         "source": {

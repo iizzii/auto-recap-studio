@@ -132,7 +132,6 @@ def mix_audio(
     # Identify act-transition boundaries (mood changes between adjacent beats)
     transition_times: list[float] = []
     if sfx_on and len(beats) > 1:
-        beat_cfg = config.get("script", {})
         # Approximate beat start times from their source windows (not 100% exact but sufficient for SFX)
         for i in range(1, len(beats)):
             prev_b = beats[i - 1]

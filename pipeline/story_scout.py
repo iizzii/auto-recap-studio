@@ -246,9 +246,8 @@ def _mock_llm_story_scores(candidates: list[dict[str, Any]]) -> list[dict[str, A
 def _llm_story_scores(candidates: list[dict[str, Any]], gemini_api_key: str) -> list[dict[str, Any]]:
     """Call Gemini to score candidates' story/hook potential (batched)."""
     try:
-        import google.generativeai as genai  # type: ignore[import]
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        from google import genai
+        client = genai.Client(api_key=gemini_api_key)
         prompt_path = Path("prompts/story_scout_scorer.txt")
         if prompt_path.exists():
             system_prompt = prompt_path.read_text(encoding="utf-8")
@@ -265,11 +264,11 @@ def _llm_story_scores(candidates: list[dict[str, Any]], gemini_api_key: str) -> 
              for c in candidates],
             indent=2,
         )
-        resp = model.generate_content(
-            f"{system_prompt}\n\nCANDIDATES:\n{payload}",
-            generation_config={"temperature": 0.3},
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=f"{system_prompt}\n\nCANDIDATES:\n{payload}",
         )
-        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", resp.text.strip())
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", (resp.text or "").strip())
         data = json.loads(raw)
         scores = data.get("scores", [])
         result = []

@@ -336,7 +336,7 @@ def validate_candidate(
 
 def run_scout(
     query: str = "",
-    candidate_count: int = 5,
+    candidate_count: int = 3,
     license_scope: str = "cc_only",
     mock_llm: bool = False,
     mock_http: bool = False,

@@ -372,7 +372,7 @@ def status() -> None:
 @app.command()
 def scout(
     query: str = typer.Option("", "--query", help="Optional theme/keyword."),
-    candidate_count: int = typer.Option(5, "--candidate-count", help="Number of candidates to score."),
+    candidate_count: int = typer.Option(3, "--candidate-count", help="Number of candidates to score."),
     license_scope: str = typer.Option("cc_only", "--license-scope", help="cc_only | cc_and_pd"),
     auto_produce: bool = typer.Option(False, "--auto-produce", help="Auto-render #1 winner if CC0/CC-BY."),
     mock_llm: bool = typer.Option(False, "--mock-llm", help="Use deterministic mock LLM scores."),

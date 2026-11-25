@@ -63,7 +63,7 @@ def test_banned_opener_rejected() -> None:
     manifest.beats[0].narration = (
         "In this movie Alice discovers a glowing door behind the old stone wall."
     )
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
     assert any("banned opener" in e.lower() for e in errors)
 
 
@@ -71,14 +71,14 @@ def test_low_commentary_share_rejected() -> None:
     manifest = _make_manifest()
     for b in manifest.beats:
         b.kind = "story"
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
     assert any("commentary share" in e.lower() for e in errors)
 
 
 def test_soft_proper_noun_warning_not_hard_error() -> None:
     manifest = _make_manifest()
     ledger = {"events": [{"summary": "Someone opens a door", "characters": [], "visual_notes": "", "craft_notes": ""}]}
-    errors, warnings = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    errors, warnings = validate_manifest(manifest, _base_config(), (0.0, 45.0), ledger)
     assert errors == []
     assert any("Alice" in w for w in warnings)
 
@@ -88,7 +88,7 @@ def test_banned_film_essay_cliche_rejected() -> None:
     manifest.beats[1].narration = (
         "This intense dialogue efficiently establishes crucial backstory and emotional stakes for her."
     )
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
     assert any("banned film-essay cliche" in e.lower() for e in errors)
 
 
@@ -98,7 +98,7 @@ def test_vague_beat1_placeholder_rejected_with_ledger() -> None:
         "A mysterious stranger walks through the ruined city gate carrying a glowing blade."
     )
     ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0), ledger)
     assert any("vague placeholder" in e.lower() for e in errors)
 
 
@@ -107,7 +107,7 @@ def test_visual_pointer_count_above_1_rejected() -> None:
     manifest = _make_manifest()
     manifest.beats[1].narration = "Look closely at the scar on the great wing she once bandaged herself."
     manifest.beats[2].narration = "Notice how she drops her sword the second she sees its eyes glow again."
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
     assert any("visual-pointer" in e.lower() for e in errors)
 
 
@@ -116,7 +116,7 @@ def test_visual_pointer_count_exactly_1_passes() -> None:
     manifest = _make_manifest()
     manifest.beats[1].narration = "Look closely at the scar on the great wing she once bandaged herself."
     # beats[2] stays as default (no visual pointer)
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0))
     assert not any("visual-pointer" in e.lower() for e in errors)
 
 
@@ -125,7 +125,7 @@ def test_beat1_starts_with_char_name_rejected() -> None:
     manifest = _make_manifest()
     manifest.beats[0].narration = "Sintel spent years searching for the dragon that took her pet scales."
     ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0), ledger)
     assert any("character name" in e.lower() for e in errors)
 
 
@@ -134,7 +134,7 @@ def test_beat1_universal_hook_passes() -> None:
     manifest = _make_manifest()
     manifest.beats[0].narration = "This girl spent years searching for the dragon that stole her pet."
     ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
-    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 45.0), ledger)
     assert not any("character name" in e.lower() for e in errors)
 
 

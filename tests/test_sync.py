@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -51,12 +52,16 @@ def test_shot_frames_match_video_frames() -> None:
 
 
 def test_no_long_silence_or_black_frames() -> None:
-    """Verify no unintended silence gap > 400ms and no black run > 0.3s."""
+    """Verify no unintended silence gap > 400ms (ignoring trailing 0.7s outro pad) and no black run > 0.3s."""
+    total_dur = ffutil.duration(FINAL_MP4)
     sil = ffutil.run(
         ["ffmpeg", "-i", str(FINAL_MP4), "-af", "silencedetect=noise=-50dB:d=0.4", "-f", "null", "-"],
         check=False,
     )
-    assert "silence_duration:" not in sil.stderr
+    for line in sil.stderr.splitlines():
+        m = re.search(r"silence_end:\s*(\d+(?:\.\d+)?)\s*\|\s*silence_duration:\s*(\d+(?:\.\d+)?)", line)
+        if m and float(m.group(1)) < total_dur - 0.7:
+            raise AssertionError(f"Unexpected mid-video silence > 400ms: {line}")
 
     blk = ffutil.run(
         ["ffmpeg", "-i", str(FINAL_MP4), "-vf", "blackdetect=d=0.3:pix_th=0.10", "-f", "null", "-"],

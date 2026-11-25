@@ -91,7 +91,7 @@ class ScriptDraftResponse(BaseModel):
 
 
 def _normalize_manifest_data(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize common LLM mood/kind synonym drift before strict Pydantic validation."""
+    """Normalize common LLM mood/kind synonym drift and zero-length windows."""
     for beat in data.get("beats", []):
         if isinstance(beat, dict):
             raw_mood = str(beat.get("mood", "action")).strip().lower()
@@ -101,6 +101,10 @@ def _normalize_manifest_data(data: dict[str, Any]) -> dict[str, Any]:
                 beat["kind"] = "story"
             else:
                 beat["kind"] = raw_kind
+            s_val = float(beat.get("source_window_start_sec", 0.0))
+            e_val = float(beat.get("source_window_end_sec", 0.0))
+            if e_val <= s_val:
+                beat["source_window_end_sec"] = round(s_val + 5.0, 2)
     return data
 
 

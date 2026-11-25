@@ -34,11 +34,11 @@ llm:
 
 script:
   style: commentary
-  min_words: 300
+  min_words: 250
   max_words: 430
   min_beats: 14
   max_beats: 24
-  beat_min_words: 12
+  beat_min_words: 10
   beat_max_words: 28
   min_commentary_share: 0.25
   split_cliffhanger_range: [0.40, 0.50]

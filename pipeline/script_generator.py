@@ -437,6 +437,11 @@ def generate_or_load_script(
                 last_errors.append(
                     f"Action: Change at least {min_comm} of your {n_b} beats to kind='commentary'."
                 )
+            if any("Total word count" in e for e in errors):
+                total_w = sum(len(b.narration.split()) for b in manifest.beats)
+                last_errors.append(
+                    f"Action: Current total words={total_w}; adjust beat lengths to hit [{script_cfg.get('min_words')}, {script_cfg.get('max_words')}]."
+                )
             if any("overlaps previous beat" in e or "chronological order" in e for e in errors):
                 last_errors.append(
                     "Action: Make each beat's source_window_start_sec >= previous beat's source_window_end_sec - 1.0."

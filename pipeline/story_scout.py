@@ -88,7 +88,7 @@ def _ia_search(query: str, rows: int = 20) -> list[dict[str, Any]]:
     base_filter = (
         "mediatype:movies AND "
         "(subject:animation OR subject:cartoon OR collection:animationandcartoons OR collection:classic_cartoons) AND "
-        "(licenseurl:creativecommons OR licenseurl:publicdomain OR licenseurl:creativecommons.org/publicdomain)"
+        "(licenseurl:*creativecommons* OR licenseurl:*publicdomain*)"
     )
     q_str = f"({query}) AND {base_filter}" if query.strip() else base_filter
     params = {

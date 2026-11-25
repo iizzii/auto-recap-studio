@@ -280,6 +280,17 @@ def run(
     report.write_run_report(run_rep, project_dir, out_dir)
     report.write_github_summary(run_rep)
 
+    if slug != "ci_synth":
+        h = history.load()
+        history.upsert_rendered(
+            h,
+            slug=slug,
+            work_title=rights_rec.work_title,
+            source_url=video_source,
+            source_sha256=run_rep.source_sha256 or "",
+        )
+        history.save(h)
+
 
 @app.command("queue-next")
 def queue_next(

@@ -73,6 +73,23 @@ def compute_fg_dimensions(
     return scaled_w, max(2, target_h)
 
 
+def should_deinterlace(
+    source_path: Path,
+    sample_timestamps: list[float],
+    config: dict[str, Any],
+    work_year: int | None = None,
+) -> bool:
+    """Return True if deinterlacing should be applied (vintage year <= 1985 or combing detected)."""
+    layout_cfg = config.get("layout", {})
+    if not layout_cfg.get("auto_deinterlace", True):
+        return False
+    vintage_year = int(layout_cfg.get("vintage_deinterlace_year", 1985))
+    if work_year is not None and work_year <= vintage_year:
+        return True
+    threshold = float(layout_cfg.get("combing_threshold", 1.12))
+    return deinterlace.detect_combing(source_path, sample_timestamps, threshold=threshold)
+
+
 def _render_single_shot(
     shot: Shot,
     source_path: Path,
@@ -114,8 +131,17 @@ def _render_single_shot(
         unsharp_str = str(grade.get("unsharp", "3:3:0.3"))
         fg_chain += f",eq={eq_str},unsharp={unsharp_str}"
 
-    pre_filter = deinterlace.build_deinterlace_overscan_filter(config, deinterlace_applied)
-    pre_prefix = f"{pre_filter}," if pre_filter else ""
+    pre_filters: list[str] = []
+    if deinterlace_applied:
+        pre_filters.append("bwdif=mode=0:parity=-1:deint=0")
+    overscan_trim_pct = float(layout.get("overscan_trim_pct", 0.0))
+    if overscan_trim_pct > 0:
+        p = overscan_trim_pct / 100.0
+        pre_filters.append(
+            f"crop=trunc(iw*(1-2*{p:.4f})/2)*2:trunc(ih*(1-2*{p:.4f})/2)*2:"
+            f"trunc(iw*{p:.4f}/2)*2:trunc(ih*{p:.4f}/2)*2"
+        )
+    pre_prefix = ",".join(pre_filters) + "," if pre_filters else ""
 
     fc_parts = [
         f"[0:v]{pre_prefix}setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,split=2[bg_in][fg_in]",
@@ -176,6 +202,7 @@ def compose_video(
     ass_path: Path,
     work_dir: Path,
     config: dict[str, Any],
+    work_year: int | None = None,
 ) -> tuple[Path, list[Path]]:
     """Render all shot intermediates, concat, burn captions, and mux final_short.mp4."""
     rt = config.get("runtime", {})
@@ -209,11 +236,8 @@ def compose_video(
     v_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
     src_dims = (int(v_stream.get("width", 1920)), int(v_stream.get("height", 1080)))
 
-    deinterlace_applied = False
-    if layout.get("auto_deinterlace", True) and shots:
-        sample_ts = [round((s.src_start_sec + s.src_end_sec) * 0.5, 2) for s in shots[:10]]
-        thresh = float(layout.get("combing_threshold", 1.35))
-        deinterlace_applied = deinterlace.detect_combing(source_path, sample_ts, threshold=thresh)
+    sample_ts = [round((s.src_start_sec + s.src_end_sec) * 0.5, 2) for s in shots[:10]]
+    deinterlace_applied = should_deinterlace(source_path, sample_ts, config, work_year=work_year) if shots else False
 
     with ThreadPoolExecutor(max_workers=parallel_jobs) as pool:
         futures = [

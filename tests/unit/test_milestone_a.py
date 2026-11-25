@@ -83,3 +83,47 @@ def test_infer_bgm_mood_and_numpy_fallback(tmp_path: Path) -> None:
     res = audio_mixer._synth_bgm_numpy(2.0, out_wav, "suspense")
     assert res.exists()
     assert res.stat().st_size > 1000
+
+
+def test_should_deinterlace_vintage_year() -> None:
+    from pipeline import video_composer
+    cfg = {"layout": {"auto_deinterlace": True, "vintage_deinterlace_year": 1985}}
+    assert video_composer.should_deinterlace(Path("dummy.mp4"), [1.0], cfg, work_year=1941) is True
+
+
+def test_script_validator_bans_and_ending_reach() -> None:
+    cfg = {
+        "audio": {"source_audio_mode": "off"},
+        "script": {
+            "min_words": 20,
+            "max_words": 150,
+            "min_beats": 4,
+            "max_beats": 8,
+            "beat_min_words": 5,
+            "beat_max_words": 25,
+            "min_commentary_share": 0.25,
+        },
+    }
+    beats = [
+        _beat(1, narration="A girl enjoys a quiet morning in the sunny forest."),
+        _beat(2, narration="The color saturation and lighting design look amazing."),
+        _beat(3, narration="Loud sound effects echo across the valley."),
+        _beat(4, narration="The hero walks away."),
+    ]
+    manifest = ProjectManifest(
+        project_slug="test_proj",
+        style="commentary",
+        part_number=0,
+        title="A hero leaps across a bridge #shorts",
+        banner_text="THE BRIDGE LEAP",
+        description="Short test.",
+        hashtags=["#shorts"],
+        source_title="Test",
+        attribution_block="Test",
+        beats=beats,
+    )
+    errors, _ = validate_manifest(manifest, cfg, (0.0, 100.0))
+    assert any("slow/generic setup" in e for e in errors)
+    assert any("color saturation" in e for e in errors)
+    assert any("source audio" in e for e in errors)
+    assert any("stops too early" in e for e in errors)

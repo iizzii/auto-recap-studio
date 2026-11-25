@@ -153,9 +153,10 @@ def run(
 
     src_dur = ffutil.duration(source_path)
     src_cfg = cfg.get("source", {})
-    head_excl = float(src_cfg.get("exclude_head_sec", 20))
+    cfg_head = float(src_cfg.get("exclude_head_sec", 20))
+    allowed_start = float(rights_rec.exclude_head_sec) if rights_rec.exclude_head_sec is not None else cfg_head
+    allowed_start = min(allowed_start, max(0.0, src_dur - 10.0))
     tail_pct = float(src_cfg.get("exclude_tail_pct", 8))
-    allowed_start = min(head_excl, src_dur * 0.2)
     allowed_end = max(allowed_start + 5.0, src_dur * (1.0 - tail_pct / 100.0))
     allowed_range = (allowed_start, allowed_end)
 
@@ -242,6 +243,7 @@ def run(
         ass_path=ass_path,
         work_dir=work_dir,
         config=cfg,
+        work_year=rights_rec.year,
     )
     run_rep.stages_completed.append("video_composer")
 

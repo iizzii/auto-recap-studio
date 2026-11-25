@@ -7,7 +7,7 @@ from typing import Any
 
 from pipeline.models import ProjectManifest
 
-_BANNED_BEAT1_OPENERS = (
+BANNED_BEAT1_PHRASES: tuple[str, ...] = (
     "in this movie",
     "in this film",
     "today we",
@@ -15,9 +15,13 @@ _BANNED_BEAT1_OPENERS = (
     "hey guys",
     "hello everyone",
     "meet ",
+    "enjoys a quiet",
+    "peaceful morning",
+    "starts off peacefully",
+    "begins on a quiet",
 )
 
-_BANNED_CLICHES = (
+BANNED_META_PHRASES: tuple[str, ...] = (
     "establishes",
     "backstory",
     "pacing shift",
@@ -34,11 +38,49 @@ _BANNED_CLICHES = (
     "masterfully",
     "incredibly intense situation",
     "dialogue reveal",
+    "color saturation",
+    "lighting design",
+    "casts long shadows",
+    "menacing atmosphere",
+    "mechanical design",
+    "traditional human proportions",
+    "cartoon proportions",
+    "exaggerated proportions",
+    "animation framing",
+    "animated lighting",
+    "throughout the sequence",
+    "chase sequences",
+    "physical comedy",
+    "comedic weight",
+    "personal risk",
+    "immediate peril",
+    "malicious escalation",
+    "forest ecosystem",
+    "direct assault on",
+    "highlights an",
+    "highlights every",
+    "emphasizes",
+    "amplifies",
+    "maximizes",
+    "underscores",
+    "contrast sharply",
     "here's the detail most people miss",
     "what she doesn't realize yet",
     "what he doesn't realize yet",
     "that single choice changes everything",
     "the tragic twist is",
+    "final, humiliating punishment",
+    "final humiliating punishment",
+    "restores peace",
+)
+
+BANNED_AUDIO_HALLUCINATION_PHRASES: tuple[str, ...] = (
+    "sound effects",
+    "sound effect",
+    "music swells",
+    "soundtrack",
+    "deafening roar",
+    "loud music",
 )
 
 _VAGUE_BEAT1_PLACEHOLDERS = (
@@ -107,9 +149,12 @@ def validate_manifest(
 
         if idx == 1:
             low = beat.narration.strip().lower()
-            for opener in _BANNED_BEAT1_OPENERS:
-                if low.startswith(opener):
-                    errors.append(f"Beat 1 uses banned opener '{opener.strip()}'.")
+            for opener in BANNED_BEAT1_PHRASES:
+                if opener in low:
+                    errors.append(
+                        "Beat 1 starts with a slow/generic setup instead of an immediate conflict hook."
+                    )
+                    break
             if ledger and any(ev.get("characters") or ev.get("visual_notes") for ev in ledger.get("events", [])):
                 for vague in _VAGUE_BEAT1_PLACEHOLDERS:
                     if vague in low:
@@ -128,9 +173,15 @@ def validate_manifest(
                     )
 
         low_nar = beat.narration.lower()
-        for cliche in _BANNED_CLICHES:
+        for cliche in BANNED_META_PHRASES:
             if cliche in low_nar:
                 errors.append(f"Beat {beat.beat_id} uses banned film-essay cliche '{cliche}'.")
+        if config.get("audio", {}).get("source_audio_mode", "off") == "off":
+            for aph in BANNED_AUDIO_HALLUCINATION_PHRASES:
+                if aph in low_nar:
+                    errors.append(
+                        f"Narration references source audio ('{aph}'), which is stripped in this pipeline."
+                    )
 
         if beat.source_window_start_sec < min_allowed - 0.01:
             errors.append(
@@ -158,6 +209,13 @@ def validate_manifest(
 
         if beat.kind == "commentary":
             commentary_count += 1
+
+    if manifest.part_number == 0 and beats:
+        span = max(1.0, max_allowed - min_allowed)
+        if beats[-1].source_window_end_sec < min_allowed + 0.78 * span:
+            errors.append(
+                "Final beat stops too early in the film; include the actual ending payoff."
+            )
 
     if not (min_words <= total_words <= max_words):
         errors.append(

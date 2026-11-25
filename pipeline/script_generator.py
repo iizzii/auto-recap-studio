@@ -146,7 +146,7 @@ def _extract_pass1_contact_sheets(
     from PIL import Image, ImageDraw
 
     src_cfg = config.get("source", {})
-    max_frames = int(src_cfg.get("pass1_max_frames", 48))
+    base_max_frames = int(src_cfg.get("pass1_max_frames", 48))
     cols = int(src_cfg.get("pass1_grid_cols", 4))
     rows = int(src_cfg.get("pass1_grid_rows", 4))
     per_sheet = max(1, cols * rows)
@@ -155,7 +155,8 @@ def _extract_pass1_contact_sheets(
     start_s, end_s = allowed_range
     safe_end = max(start_s + 1.0, end_s - 4.0)
     dur = max(2.0, safe_end - start_s)
-    n_frames = min(max_frames, max(8, int(dur // 8)))
+    max_frames = max(base_max_frames, 64) if dur > 120 else base_max_frames
+    n_frames = min(max_frames, max(8, int(dur // 6)))
 
     # Climax-weighted split: 65% over first 75% of range, 35% over final 25%
     n_early = max(1, int(round(n_frames * 0.65)))
@@ -170,10 +171,13 @@ def _extract_pass1_contact_sheets(
         timestamps.append(start_s + (i + 0.5) * early_step)
     for i in range(n_climax):
         timestamps.append(boundary + (i + 0.5) * climax_step)
+    if len(timestamps) >= 2:
+        timestamps[-2] = max(start_s + 0.5, end_s - 12.0)
+        timestamps[-1] = max(start_s + 1.0, end_s - 4.0)
 
     sheets_dir = work_dir / "pass1_sheets"
     sheets_dir.mkdir(parents=True, exist_ok=True)
-    tile_w, tile_h = 320, 180
+    tile_w, tile_h = 400, 225
     tiles: list[Image.Image] = []
 
     for ts in timestamps:

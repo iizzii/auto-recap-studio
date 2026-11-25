@@ -40,26 +40,26 @@ llm:
 
 script:
   style: commentary
-  min_words: 190
-  max_words: 420
+  min_words: 220
+  max_words: 380
   min_beats: 12
   max_beats: 24
-  beat_min_words: 12
-  beat_max_words: 28
+  beat_min_words: 6
+  beat_max_words: 24
   min_commentary_share: 0.25
   split_cliffhanger_range: [0.40, 0.50]
 
 tts:
   backend: edge_tts
-  voice: en-US-AndrewNeural
-  rate: "+8%"
+  voice: en-US-BrianNeural
+  rate: "+12%"
   retries: 4
   backoff_base_sec: 1.5
   trim_silence_db: -45
-  internal_pause_max_ms: 150
-  internal_pause_target_ms: 85
+  internal_pause_max_ms: 130
+  internal_pause_target_ms: 70
   beat_loudness_lufs: -16
-  beat_gap_frames: 2
+  beat_gap_frames: 1
   ending_pad_frames: 15
   max_global_atempo: 1.18
   mock_tone_hz: 280
@@ -95,7 +95,8 @@ layout:
   min_fg_height_px: 760
   max_horizontal_crop_pct: 42
   auto_deinterlace: true
-  combing_threshold: 1.35
+  combing_threshold: 1.12
+  vintage_deinterlace_year: 1985
   overscan_trim_pct: 3.0
   banner:
     enabled: true
@@ -160,4 +161,7 @@ publishing:
 qa:
   av_sync_tolerance_sec: 0.15
   max_silence_gap_ms: 400
+  min_avg_match_score: 6.0
+  min_hook_match_score: 7.0
+  require_ending_reach_pct: 0.80
   fail_on_warnings: false

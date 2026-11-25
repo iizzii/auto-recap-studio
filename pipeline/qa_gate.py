@@ -174,6 +174,25 @@ def run_qa_gate(
     if caption_match_ratio < 0.95:
         warnings.append(f"Caption-to-script word match {caption_match_ratio:.2%} < 95%.")
 
+    # 1. Post-render combing check
+    if config.get("layout", {}).get("auto_deinterlace", True) and v_dur > 2.0:
+        from pipeline import deinterlace
+        sample_ts = [v_dur * f for f in (0.15, 0.35, 0.50, 0.70, 0.85)]
+        if deinterlace.detect_combing(final_mp4, sample_ts, threshold=1.30):
+            failures.append("Residual interlacing/combing detected in final_short.mp4.")
+
+    # 2. Vision sync score check
+    scores = [float(s.match_score) for s in shots if s.match_score is not None]
+    avg_match_score = round(sum(scores) / len(scores), 2) if scores else 0.0
+    b1_scores = [float(s.match_score) for s in shots if s.beat_id == 1 and s.match_score is not None]
+    hook_match_score = round(max(b1_scores), 2) if b1_scores else 0.0
+    min_avg = float(qa_cfg.get("min_avg_match_score", 6.0))
+    min_hook = float(qa_cfg.get("min_hook_match_score", 7.0))
+    if scores and avg_match_score < min_avg:
+        warnings.append(f"avg_match_score {avg_match_score:.2f} < {min_avg:.2f}.")
+    if b1_scores and hook_match_score < min_hook:
+        warnings.append(f"hook_match_score {hook_match_score:.2f} < {min_hook:.2f}.")
+
     report = {
         "passed": len(failures) == 0,
         "failures": failures,
@@ -185,6 +204,8 @@ def run_qa_gate(
             "max_silence_ms": round(silence_ms, 1),
             "max_black_sec": round(black_sec, 3),
             "caption_match_ratio": round(caption_match_ratio, 4),
+            "avg_match_score": avg_match_score,
+            "hook_match_score": hook_match_score,
             "total_shots": len(shots),
         },
     }

@@ -25,7 +25,15 @@ on:
         description: "Automatically render #1 winner if CC0/CC-BY"
         required: false
         type: boolean
-        default: false
+        default: true
+      publish_target:
+        description: "Delivery target for winner video"
+        required: true
+        type: choice
+        default: telegram
+        options:
+          - telegram
+          - artifact_only
   # schedule:
   #   - cron: "0 10 * * 1"
 
@@ -37,6 +45,8 @@ jobs:
       contents: write
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout repository
@@ -66,6 +76,7 @@ jobs:
           INPUT_COUNT: ${{ inputs.candidate_count }}
           INPUT_SCOPE: ${{ inputs.license_scope }}
           INPUT_AUTO: ${{ inputs.auto_produce_winner }}
+          INPUT_PUBLISH: ${{ inputs.publish_target }}
         run: |
           AUTO_FLAG=""
           if [ "$INPUT_AUTO" = "true" ]; then
@@ -75,6 +86,7 @@ jobs:
             --query "$INPUT_QUERY" \
             --candidate-count "$INPUT_COUNT" \
             --license-scope "$INPUT_SCOPE" \
+            --publish-target "$INPUT_PUBLISH" \
             $AUTO_FLAG
 
       - name: Upload winner video artifact (if produced)

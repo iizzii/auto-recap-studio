@@ -375,6 +375,7 @@ def scout(
     candidate_count: int = typer.Option(3, "--candidate-count", help="Number of candidates to score."),
     license_scope: str = typer.Option("cc_only", "--license-scope", help="cc_only | cc_and_pd"),
     auto_produce: bool = typer.Option(False, "--auto-produce", help="Auto-render #1 winner if CC0/CC-BY."),
+    publish_target: str = typer.Option("telegram", "--publish-target", help="Delivery target."),
     mock_llm: bool = typer.Option(False, "--mock-llm", help="Use deterministic mock LLM scores."),
 ) -> None:
     """Discover, validate, and score top-N free-to-use stories."""
@@ -409,7 +410,7 @@ def scout(
             srt_source=w.get("srt_url") or None,
             mode="full_auto",
             style="commentary",
-            publish_target="artifact_only",
+            publish_target=publish_target,
             mock_llm=mock_llm,
             mock_tts=False,
             mock_vision=False,

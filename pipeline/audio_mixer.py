@@ -157,7 +157,7 @@ def mix_audio(
         # For each transition, we adelay the whoosh and amix all together
         # Build filter: generate N delayed whoosh copies then amix with main out
         whoosh_inputs_cmd: list[str] = []
-        for t in transition_times:
+        for _t in transition_times:
             whoosh_inputs_cmd += ["-i", str(whoosh_path)]
 
         n_whoosh = len(transition_times)

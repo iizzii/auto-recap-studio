@@ -1,0 +1,142 @@
+name: Discover & Produce Stories
+
+on:
+  workflow_dispatch:
+    inputs:
+      category:
+        description: "Story category to search on Internet Archive"
+        required: true
+        type: choice
+        default: all
+        options:
+          - classic_cartoons
+          - cc_animation
+          - all
+      max_items:
+        description: "Max new stories to queue per run"
+        required: true
+        type: string
+        default: "2"
+      auto_produce:
+        description: "Immediately render & deliver next queued story"
+        required: true
+        type: boolean
+        default: true
+      publish_target:
+        description: "Delivery target for newly discovered stories"
+        required: true
+        type: choice
+        default: telegram
+        options:
+          - telegram
+          - artifact_only
+          - all_private
+  schedule:
+    # Automatically search for a fresh free cartoon/CC story every Monday & Thursday at 10:00 UTC
+    - cron: "0 10 * * 1,4"
+
+jobs:
+  discover-and-produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    concurrency:
+      group: recap-discover-produce
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Reclaim disk space if needed
+        run: |
+          FREE_GB=$(df -BG /tmp | awk 'NR==2 {gsub("G","",$4); print $4}')
+          if [ "$FREE_GB" -lt 15 ]; then
+            sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
+          fi
+
+      - name: Install FFmpeg and font dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+
+      - name: Cache Whisper models and fonts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            assets/fonts
+          key: recap-models-fonts-v1
+
+      - name: Ensure Montserrat ExtraBold font
+        run: |
+          if [ ! -f assets/fonts/Montserrat-ExtraBold.ttf ]; then
+            curl -fsSL -o assets/fonts/Montserrat-ExtraBold.ttf \
+              "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-ExtraBold.ttf" \
+              || echo "Font download failed; falling back to DejaVu Sans Bold"
+          fi
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Discover free-to-use cartoons & CC stories
+        env:
+          IN_CAT: ${{ inputs.category || 'all' }}
+          IN_MAX: ${{ inputs.max_items || '1' }}
+          IN_TARGET: ${{ inputs.publish_target || 'telegram' }}
+        run: |
+          python scripts/discover_stories.py \
+            --category "$IN_CAT" \
+            --max-items "$IN_MAX" \
+            --publish-target "$IN_TARGET"
+
+      - name: Produce next pending queued story
+        if: ${{ inputs.auto_produce != false }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_OUTPUT_BUCKET: ${{ secrets.R2_OUTPUT_BUCKET }}
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python main.py queue-next --config config.yaml
+
+      - name: Commit discovered rights, queue, and manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add queue.json projects/*/*.json projects/*/*.jpg 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(discover): queue & process discovered story [skip ci]"
+            for i in 1 2 3; do
+              git pull --rebase && git push && break
+              sleep 3
+            done
+          fi
+
+      - name: Upload produced artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovered-recap-output
+          path: /tmp/recap_work/*/output/
+          retention-days: 2
+          if-no-files-found: ignore
+
+      - name: Cleanup work directory
+        if: always()
+        run: rm -rf /tmp/recap_work

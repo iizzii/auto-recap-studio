@@ -150,10 +150,20 @@ def _publish_telegram(
             )
             r.raise_for_status()
 
+    gh_server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").strip()
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    gh_run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    gh_run_url = (
+        f"{gh_server}/{gh_repo}/actions/runs/{gh_run_id}"
+        if gh_repo and gh_run_id
+        else ""
+    )
+
     size_mb = final_mp4.stat().st_size / (1024 * 1024)
+    orig_size_mb = size_mb
     upload_mp4 = final_mp4
     if size_mb > max_mb:
-        # Re-encode a Telegram-sized copy targeting ~90% of max_mb so sendVideo succeeds
+        # Re-encode a Telegram-sized copy targeting ~88% of max_mb so sendVideo succeeds
         dur = max(1.0, ffutil.duration(final_mp4))
         target_total_kbps = int(((max_mb * 0.88) * 8 * 1024) / dur)
         audio_kbps = 128
@@ -191,25 +201,39 @@ def _publish_telegram(
             size_mb = upload_mp4.stat().st_size / (1024 * 1024)
 
     if size_mb <= max_mb:
-        with upload_mp4.open("rb") as fh:
-            r = requests.post(
-                f"{base}/sendVideo",
-                data={"chat_id": chat_id, "caption": meta["title"][:1024]},
-                files={"video": fh},
-                timeout=180,
-            )
-            r.raise_for_status()
-        return {"status": "sent", "video_mb": round(size_mb, 2)}
+        vid_caption = meta["title"]
+        if orig_size_mb > max_mb and gh_run_url:
+            vid_caption = f"{meta['title']}\n\nFull quality ({orig_size_mb:.1f} MB) on GitHub:\n{gh_run_url}"
+        try:
+            with upload_mp4.open("rb") as fh:
+                r = requests.post(
+                    f"{base}/sendVideo",
+                    data={"chat_id": chat_id, "caption": vid_caption[:1024]},
+                    files={"video": fh},
+                    timeout=180,
+                )
+                r.raise_for_status()
+            res_dict: dict[str, Any] = {"status": "sent", "video_mb": round(size_mb, 2)}
+            if gh_run_url:
+                res_dict["github_url"] = gh_run_url
+            return res_dict
+        except requests.RequestException as exc:
+            log.warning("Telegram sendVideo failed (%s); falling back to GitHub download link.", exc)
 
+    fallback_msg = f"Video is {orig_size_mb:.1f} MB (> {max_mb} MB Telegram limit)."
+    if gh_run_url:
+        fallback_msg += f"\n\nDownload from GitHub Actions Artifacts:\n{gh_run_url}"
+    if r2_url:
+        fallback_msg += f"\n\nDirect Download: {r2_url}"
     requests.post(
         f"{base}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": f"Video is {size_mb:.1f} MB (> {max_mb} MB limit). Check GitHub Artifact or R2 link.",
-        },
+        json={"chat_id": chat_id, "text": fallback_msg},
         timeout=30,
     ).raise_for_status()
-    return {"status": "notice_sent", "video_mb": round(size_mb, 2)}
+    out: dict[str, Any] = {"status": "notice_sent", "video_mb": round(orig_size_mb, 2)}
+    if gh_run_url:
+        out["github_url"] = gh_run_url
+    return out
 
 
 def _publish_r2(

@@ -123,7 +123,7 @@ captions:
 audio:
   source_audio_mode: "off"
   source_ducked_db: -26
-  bgm_db_below_voice: -18
+  bgm_db_below_voice: -16
   bgm_fade_out_sec: 1.5
   sfx_on_transitions: true
   sfx_whoosh_db: -14

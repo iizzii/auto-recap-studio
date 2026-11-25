@@ -403,6 +403,7 @@ def generate_or_load_script(
 
     last_errors: list[str] = []
     best_raw = ""
+    prev_valid_json = ""
     for attempt in range(1, max_retries + 2):
         feedback = ""
         if last_errors:
@@ -410,6 +411,8 @@ def generate_or_load_script(
                 "\n\nPREVIOUS ATTEMPT FAILED VALIDATION. FIX ALL ERRORS:\n- "
                 + "\n- ".join(last_errors)
             )
+            if prev_valid_json:
+                feedback += f"\n\nPREVIOUS DRAFT TO REVISE (keep valid timestamps, expand short beats to 16-22 words each):\n{prev_valid_json}"
         prompt = f"{pass2_tmpl}\n\nINPUTS:\n{payload_context}{feedback}"
         best_raw = _call_llm(
             prompt, config, response_schema=ScriptDraftResponse, budget=budget
@@ -432,6 +435,8 @@ def generate_or_load_script(
                 )
                 return manifest, warnings
             last_errors = errors
+            if not any("overlaps" in e or "chronological" in e for e in errors):
+                prev_valid_json = best_raw
             # Enrich feedback with exact counts/windows so smaller models fix violations in 1 retry
             n_b = len(manifest.beats)
             min_comm = max(1, int(-(-n_b * float(script_cfg.get("min_commentary_share", 0.25)) // 1)))

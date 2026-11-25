@@ -2,7 +2,7 @@ runtime:
   fps: 30
   width: 1080
   height: 1920
-  min_duration_sec: 90
+  min_duration_sec: 80
   max_duration_sec: 175
   work_dir: /tmp/recap_work
   min_free_disk_gb: 4
@@ -34,7 +34,7 @@ llm:
 
 script:
   style: commentary
-  min_words: 220
+  min_words: 200
   max_words: 430
   min_beats: 12
   max_beats: 24

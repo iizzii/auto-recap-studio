@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
-
 from pipeline import audio_mixer, deinterlace
 from pipeline.models import Beat, ProjectManifest
 from pipeline.script_validator import validate_manifest

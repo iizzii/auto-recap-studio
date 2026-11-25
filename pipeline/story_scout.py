@@ -12,12 +12,11 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import requests
 
 from pipeline import history as hist_mod
-from pipeline.models import HistoryRecord, PublishedHistory, QueueFile, QueueItem, RightsRecord
+from pipeline.models import PublishedHistory, QueueFile, QueueItem
 
 log = logging.getLogger(__name__)
 

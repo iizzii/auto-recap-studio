@@ -51,38 +51,47 @@ def _check_disk_space(work_dir: Path, min_gb: float) -> None:
 
 
 def _download_http(url: str, dest: Path, max_gb: float) -> Path:
-    """Stream-download an HTTP(S) file with Range resume and *max_gb* cap."""
+    """Stream-download an HTTP(S) file with Range resume, retries, and *max_gb* cap."""
     max_bytes = int(max_gb * (1024**3))
-    existing_size = dest.stat().st_size if dest.exists() else 0
-    headers: dict[str, str] = {}
-    if existing_size > 0:
-        headers["Range"] = f"bytes={existing_size}-"
+    for attempt in range(4):
+        existing_size = dest.stat().st_size if dest.exists() else 0
+        headers: dict[str, str] = {}
+        if existing_size > 0:
+            headers["Range"] = f"bytes={existing_size}-"
 
-    with requests.get(url, headers=headers, stream=True, timeout=60) as resp:
-        if resp.status_code == 416:
-            return dest
-        resp.raise_for_status()
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=(30, 120)) as resp:
+                if resp.status_code == 416:
+                    return dest
+                resp.raise_for_status()
 
-        content_length = resp.headers.get("Content-Length")
-        if content_length is not None:
-            total = int(content_length) + (existing_size if resp.status_code == 206 else 0)
-            if total > max_bytes:
-                raise ValueError(
-                    f"Source size ({total / (1024**3):.2f} GB) exceeds max_source_gb ({max_gb} GB)."
-                )
-
-        mode = "ab" if resp.status_code == 206 else "wb"
-        written = existing_size if resp.status_code == 206 else 0
-        with dest.open(mode) as fh:
-            for chunk in resp.iter_content(chunk_size=_CHUNK_BYTES):
-                if not chunk:
-                    continue
-                written += len(chunk)
-                if written > max_bytes:
-                    raise ValueError(
-                        f"Downloaded bytes exceeded max_source_gb ({max_gb} GB)."
+                content_length = resp.headers.get("Content-Length")
+                if content_length is not None:
+                    total = int(content_length) + (
+                        existing_size if resp.status_code == 206 else 0
                     )
-                fh.write(chunk)
+                    if total > max_bytes:
+                        raise ValueError(
+                            f"Source size ({total / (1024**3):.2f} GB) exceeds max_source_gb ({max_gb} GB)."
+                        )
+
+                mode = "ab" if resp.status_code == 206 else "wb"
+                written = existing_size if resp.status_code == 206 else 0
+                with dest.open(mode) as fh:
+                    for chunk in resp.iter_content(chunk_size=_CHUNK_BYTES):
+                        if not chunk:
+                            continue
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise ValueError(
+                                f"Downloaded bytes exceeded max_source_gb ({max_gb} GB)."
+                            )
+                        fh.write(chunk)
+            return dest
+        except requests.RequestException as exc:
+            if attempt >= 3:
+                raise
+            log.warning("HTTP download interrupted (attempt %d/4): %s; resuming...", attempt + 1, exc)
     return dest
 
 

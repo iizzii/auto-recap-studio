@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "project_slug": "superman_01",
+  "style": "commentary",
+  "part_number": 0,
+  "title": "Can Superman Stop Giant Robots Stealing Millions? #shorts",
+  "banner_text": "ROBOT MONSTERS STEAL FORTUNE",
+  "description": "Giant mechanical monsters launch a series of devastating robberies across the city. Reporter Lois Lane sneaks inside one of the winged automatons and is taken to a villain's volcanic lair. Superman follows her into the stronghold to confront an entire army of numbered robots.",
+  "hashtags": [
+    "#Superman",
+    "#ClassicAnimation",
+    "#ShortsRecap",
+    "#Superhero",
+    "#RetroSciFi"
+  ],
+  "source_title": "Superman: The Mechanical Monsters",
+  "attribution_block": "Source: \"Superman: The Mechanical Monsters\" by Max Fleischer / Fleischer Studios (1941), PUBLIC DOMAIN (http://creativecommons.org/publicdomain/mark/1.0/). Original: https://archive.org/details/Superman_cartoons. Narration, selection, editing, and commentary created for this channel. Narration generated with text-to-speech.",
+  "beats": [
+    {
+      "beat_id": 1,
+      "narration": "A wave of mysterious bank raids strikes the city as giant mechanical beasts loot millions in broad daylight.",
+      "source_window_start_sec": 61.0,
+      "source_window_end_sec": 120.0,
+      "visual_cue": "News headline detailing rare gem exhibits over shots of bank vaults.",
+      "mood": "hook",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 2,
+      "narration": "Here's the detail most people miss—the city newspaper specifically highlighted a fifty million dollar gem exhibit just before the attack happened.",
+      "source_window_start_sec": 121.0,
+      "source_window_end_sec": 169.0,
+      "visual_cue": "Front page newspaper headline reporting fifty million dollars of rare gems on display.",
+      "mood": "calm",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 3,
+      "narration": "The towering boxy automaton smashes into the House of Jewels and scoops up fortune under glass while armed guards fire helplessly.",
+      "source_window_start_sec": 181.0,
+      "source_window_end_sec": 220.0,
+      "visual_cue": "Giant robot scooping up gleaming jewels while guards shoot rifles at its metallic frame.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 4,
+      "narration": "Bullets bounce harmlessly off the giant metal hull as the machine grabs every single rare gemstone from the broken display cases.",
+      "source_window_start_sec": 221.0,
+      "source_window_end_sec": 253.0,
+      "visual_cue": "Machine legs stepping through broken glass as bullets ricochet off heavy armor plates.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 5,
+      "narration": "Clark Kent and Lois arrive at the crime scene to inspect the damage left behind by the mechanical titan.",
+      "source_window_start_sec": 265.0,
+      "source_window_end_sec": 285.0,
+      "visual_cue": "Clark Kent examining shattered display cases inside the House of Jewels alongside Lois.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 6,
+      "narration": "While Clark scans the area, Lois quietly sneaks inside the winged automaton right before it launches into the high city skyline.",
+      "source_window_start_sec": 286.0,
+      "source_window_end_sec": 301.0,
+      "visual_cue": "Lois slipping inside the compartment of the giant robot as its wings unfold over buildings.",
+      "mood": "reveal",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 7,
+      "narration": "What she doesn't realize yet is that slipping inside the mechanical monster delivers her straight into the villain's secret mountain fortress.",
+      "source_window_start_sec": 337.0,
+      "source_window_end_sec": 365.0,
+      "visual_cue": "Interior view of the metal compartment showing Lois trapped as the robot flies toward a mountain.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 8,
+      "narration": "Inside the volcanic lair, a Mad Scientist operates a massive wall of glowing switches to direct his mechanical army.",
+      "source_window_start_sec": 366.0,
+      "source_window_end_sec": 394.0,
+      "visual_cue": "Mad Scientist flipping toggles on an illuminated console overlooking numbered giant automatons.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 9,
+      "narration": "The villain interrogates Lois near a vat of glowing orange molten liquid while massive gear machinery turns overhead.",
+      "source_window_start_sec": 402.0,
+      "source_window_end_sec": 430.0,
+      "visual_cue": "Mad Scientist gesturing menacingly beside a swirling vat of orange liquid metal near giant gears.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 10,
+      "narration": "That single choice changes everything, because refusing to answer the villain leaves Lois trapped right beside boiling liquid fire.",
+      "source_window_start_sec": 431.0,
+      "source_window_end_sec": 453.0,
+      "visual_cue": "Red-hot glow reflecting off the steel walls near the captive reporter.",
+      "mood": "cliffhanger",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 11,
+      "narration": "Superman bursts into the volcanic stronghold and directly confronts the numbered fleet of giant robots defending the lair.",
+      "source_window_start_sec": 460.0,
+      "source_window_end_sec": 485.0,
+      "visual_cue": "Superman flying into the cavernous base as numbered giant robots step forward to block him.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 12,
+      "narration": "Look at the industrial scale of this operation, where numbered units like twenty-two and five line up to overwhelm the hero.",
+      "source_window_start_sec": 486.0,
+      "source_window_end_sec": 500.0,
+      "visual_cue": "Numbered designations painted on the chests of giant automatons surrounding Superman.",
+      "mood": "action",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 13,
+      "narration": "The mechanical army blasts intense heat and pours molten liquid over Superman, but the hero stands firm against the fiery surge.",
+      "source_window_start_sec": 501.0,
+      "source_window_end_sec": 511.0,
+      "visual_cue": "Bright yellow flames and molten metal showering Superman as he pushes back against the machines.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    }
+  ],
+  "shots": []
+}

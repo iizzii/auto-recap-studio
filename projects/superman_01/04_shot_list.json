@@ -1,0 +1,272 @@
+[
+  {
+    "beat_id": 1,
+    "shot_index": 0,
+    "src_start_sec": 53.0,
+    "src_end_sec": 55.94,
+    "speed_factor": 1.05,
+    "frames": 84,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 1,
+    "shot_index": 1,
+    "src_start_sec": 107.585,
+    "src_end_sec": 110.525,
+    "speed_factor": 1.05,
+    "frames": 84,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 2,
+    "shot_index": 0,
+    "src_start_sec": 116.0,
+    "src_end_sec": 119.605,
+    "speed_factor": 1.05,
+    "frames": 103,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 2,
+    "shot_index": 1,
+    "src_start_sec": 145.366,
+    "src_end_sec": 148.971,
+    "speed_factor": 1.05,
+    "frames": 103,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 3,
+    "shot_index": 0,
+    "src_start_sec": 215.339,
+    "src_end_sec": 218.637,
+    "speed_factor": 0.97,
+    "frames": 102,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 3,
+    "shot_index": 1,
+    "src_start_sec": 176.0,
+    "src_end_sec": 179.535,
+    "speed_factor": 1.05,
+    "frames": 101,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 4,
+    "shot_index": 0,
+    "src_start_sec": 213.667,
+    "src_end_sec": 216.868,
+    "speed_factor": 0.97,
+    "frames": 99,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 4,
+    "shot_index": 1,
+    "src_start_sec": 250.968,
+    "src_end_sec": 254.137,
+    "speed_factor": 0.97,
+    "frames": 98,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 5,
+    "shot_index": 0,
+    "src_start_sec": 286.496,
+    "src_end_sec": 289.261,
+    "speed_factor": 1.05,
+    "frames": 79,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 5,
+    "shot_index": 1,
+    "src_start_sec": 257.0,
+    "src_end_sec": 259.73,
+    "speed_factor": 1.05,
+    "frames": 78,
+    "match_score": null,
+    "flag": "motion_only"
+  },
+  {
+    "beat_id": 6,
+    "shot_index": 0,
+    "src_start_sec": 281.0,
+    "src_end_sec": 284.266,
+    "speed_factor": 0.97,
+    "frames": 101,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 6,
+    "shot_index": 1,
+    "src_start_sec": 292.678,
+    "src_end_sec": 295.912,
+    "speed_factor": 0.97,
+    "frames": 100,
+    "match_score": 4.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 7,
+    "shot_index": 0,
+    "src_start_sec": 352.554,
+    "src_end_sec": 355.984,
+    "speed_factor": 1.05,
+    "frames": 98,
+    "match_score": 7.0,
+    "flag": null
+  },
+  {
+    "beat_id": 7,
+    "shot_index": 1,
+    "src_start_sec": 344.379,
+    "src_end_sec": 347.548,
+    "speed_factor": 0.97,
+    "frames": 98,
+    "match_score": 4.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 8,
+    "shot_index": 0,
+    "src_start_sec": 362.902,
+    "src_end_sec": 366.122,
+    "speed_factor": 1.05,
+    "frames": 92,
+    "match_score": 10.0,
+    "flag": null
+  },
+  {
+    "beat_id": 8,
+    "shot_index": 1,
+    "src_start_sec": 367.24,
+    "src_end_sec": 370.425,
+    "speed_factor": 1.05,
+    "frames": 91,
+    "match_score": 5.0,
+    "flag": null
+  },
+  {
+    "beat_id": 9,
+    "shot_index": 0,
+    "src_start_sec": 401.274,
+    "src_end_sec": 404.319,
+    "speed_factor": 1.05,
+    "frames": 87,
+    "match_score": 7.0,
+    "flag": null
+  },
+  {
+    "beat_id": 9,
+    "shot_index": 1,
+    "src_start_sec": 397.0,
+    "src_end_sec": 400.01,
+    "speed_factor": 1.05,
+    "frames": 86,
+    "match_score": 1.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 10,
+    "shot_index": 0,
+    "src_start_sec": 426.0,
+    "src_end_sec": 429.255,
+    "speed_factor": 1.05,
+    "frames": 93,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 10,
+    "shot_index": 1,
+    "src_start_sec": 449.657,
+    "src_end_sec": 452.86,
+    "speed_factor": 1.0333,
+    "frames": 93,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 11,
+    "shot_index": 0,
+    "src_start_sec": 457.669,
+    "src_end_sec": 460.924,
+    "speed_factor": 1.05,
+    "frames": 93,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 11,
+    "shot_index": 1,
+    "src_start_sec": 467.312,
+    "src_end_sec": 470.532,
+    "speed_factor": 1.05,
+    "frames": 92,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 12,
+    "shot_index": 0,
+    "src_start_sec": 481.0,
+    "src_end_sec": 484.15,
+    "speed_factor": 1.05,
+    "frames": 90,
+    "match_score": 10.0,
+    "flag": null
+  },
+  {
+    "beat_id": 12,
+    "shot_index": 1,
+    "src_start_sec": 486.706,
+    "src_end_sec": 489.616,
+    "speed_factor": 0.97,
+    "frames": 90,
+    "match_score": 6.0,
+    "flag": null
+  },
+  {
+    "beat_id": 13,
+    "shot_index": 0,
+    "src_start_sec": 514.385,
+    "src_end_sec": 516.681,
+    "speed_factor": 0.97,
+    "frames": 71,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 13,
+    "shot_index": 1,
+    "src_start_sec": 505.376,
+    "src_end_sec": 507.672,
+    "speed_factor": 0.97,
+    "frames": 71,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 13,
+    "shot_index": 2,
+    "src_start_sec": 508.045,
+    "src_end_sec": 510.53,
+    "speed_factor": 1.05,
+    "frames": 71,
+    "match_score": 5.0,
+    "flag": null
+  }
+]

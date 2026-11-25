@@ -1,0 +1,38 @@
+{
+  "slug": "superman_01",
+  "status": "success",
+  "exit_code": 0,
+  "stages_completed": [
+    "rights_guard",
+    "source_fetcher",
+    "subtitles",
+    "script",
+    "tts",
+    "clip_selector",
+    "captions",
+    "audio_mixer",
+    "video_composer",
+    "qa_gate",
+    "publish"
+  ],
+  "warnings": [
+    "Integrated loudness -99.00 LUFS differs from target -14.0.",
+    "Caption-to-script word match 94.57% < 95%."
+  ],
+  "errors": [],
+  "duration_sec": 678.12,
+  "source_sha256": "2504d3198d57c38a2624fe1cfef0914dcb05710826230c0e4e0bc4f32145d3c1",
+  "output_files": [
+    "/tmp/recap_work/superman_01/output/final_short.mp4",
+    "/tmp/recap_work/superman_01/output/metadata.json",
+    "/tmp/recap_work/superman_01/output/qa_report.json",
+    "/tmp/recap_work/superman_01/output/thumbnail.jpg"
+  ],
+  "publish_results": {
+    "telegram": {
+      "status": "sent",
+      "video_mb": 45.1,
+      "github_url": "https://github.com/iizzii/auto-recap-studio/actions/runs/45638737809"
+    }
+  }
+}

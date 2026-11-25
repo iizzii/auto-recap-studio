@@ -2,11 +2,11 @@
   {
     "beat_id": 1,
     "shot_index": 0,
-    "src_start_sec": 52.333,
-    "src_end_sec": 54.888,
-    "speed_factor": 0.97,
+    "src_start_sec": 20.0,
+    "src_end_sec": 22.765,
+    "speed_factor": 1.05,
     "frames": 79,
-    "match_score": 5.0,
+    "match_score": 6.0,
     "flag": null
   },
   {
@@ -26,7 +26,7 @@
     "src_end_sec": 125.47,
     "speed_factor": 1.05,
     "frames": 67,
-    "match_score": 9.0,
+    "match_score": 7.0,
     "flag": null
   },
   {
@@ -36,7 +36,7 @@
     "src_end_sec": 118.125,
     "speed_factor": 1.0261,
     "frames": 67,
-    "match_score": 7.0,
+    "match_score": 6.0,
     "flag": null
   },
   {
@@ -46,18 +46,18 @@
     "src_end_sec": 153.265,
     "speed_factor": 1.05,
     "frames": 79,
-    "match_score": 9.0,
+    "match_score": 8.0,
     "flag": null
   },
   {
     "beat_id": 3,
     "shot_index": 1,
-    "src_start_sec": 180.083,
-    "src_end_sec": 182.638,
+    "src_start_sec": 182.0,
+    "src_end_sec": 184.554,
     "speed_factor": 0.97,
     "frames": 79,
-    "match_score": 4.0,
-    "flag": "low_match"
+    "match_score": 7.0,
+    "flag": null
   },
   {
     "beat_id": 4,
@@ -72,11 +72,11 @@
   {
     "beat_id": 4,
     "shot_index": 1,
-    "src_start_sec": 211.75,
-    "src_end_sec": 214.165,
-    "speed_factor": 1.05,
+    "src_start_sec": 194.625,
+    "src_end_sec": 196.856,
+    "speed_factor": 0.97,
     "frames": 69,
-    "match_score": 7.0,
+    "match_score": 8.0,
     "flag": null
   },
   {
@@ -96,27 +96,27 @@
     "src_end_sec": 221.873,
     "speed_factor": 1.05,
     "frames": 69,
-    "match_score": 4.0,
+    "match_score": 3.0,
     "flag": "low_match"
   },
   {
     "beat_id": 6,
     "shot_index": 0,
-    "src_start_sec": 250.875,
-    "src_end_sec": 253.78,
+    "src_start_sec": 242.0,
+    "src_end_sec": 244.905,
     "speed_factor": 1.05,
     "frames": 83,
-    "match_score": 5.0,
-    "flag": null
+    "match_score": 3.0,
+    "flag": "low_match"
   },
   {
     "beat_id": 6,
     "shot_index": 1,
-    "src_start_sec": 287.5,
-    "src_end_sec": 290.151,
-    "speed_factor": 0.97,
+    "src_start_sec": 250.875,
+    "src_end_sec": 253.745,
+    "speed_factor": 1.05,
     "frames": 82,
-    "match_score": 4.0,
+    "match_score": 2.0,
     "flag": "low_match"
   },
   {
@@ -126,24 +126,24 @@
     "src_end_sec": 334.227,
     "speed_factor": 0.97,
     "frames": 65,
-    "match_score": 7.0,
+    "match_score": 8.0,
     "flag": null
   },
   {
     "beat_id": 7,
     "shot_index": 1,
-    "src_start_sec": 314.958,
-    "src_end_sec": 317.198,
+    "src_start_sec": 302.75,
+    "src_end_sec": 304.99,
     "speed_factor": 1.05,
     "frames": 64,
-    "match_score": 5.0,
-    "flag": null
+    "match_score": 4.0,
+    "flag": "low_match"
   },
   {
     "beat_id": 8,
     "shot_index": 0,
-    "src_start_sec": 328.167,
-    "src_end_sec": 330.689,
+    "src_start_sec": 335.292,
+    "src_end_sec": 337.814,
     "speed_factor": 0.97,
     "frames": 78,
     "match_score": 9.0,
@@ -152,11 +152,11 @@
   {
     "beat_id": 8,
     "shot_index": 1,
-    "src_start_sec": 335.292,
-    "src_end_sec": 337.781,
+    "src_start_sec": 328.167,
+    "src_end_sec": 330.656,
     "speed_factor": 0.97,
     "frames": 77,
-    "match_score": 7.0,
+    "match_score": 8.0,
     "flag": null
   },
   {
@@ -166,17 +166,17 @@
     "src_end_sec": 395.382,
     "speed_factor": 1.05,
     "frames": 74,
-    "match_score": 8.0,
+    "match_score": 9.0,
     "flag": null
   },
   {
     "beat_id": 9,
     "shot_index": 1,
-    "src_start_sec": 380.542,
-    "src_end_sec": 382.917,
-    "speed_factor": 0.976,
+    "src_start_sec": 396.875,
+    "src_end_sec": 399.43,
+    "speed_factor": 1.05,
     "frames": 73,
-    "match_score": 6.0,
+    "match_score": 5.0,
     "flag": null
   },
   {
@@ -196,28 +196,28 @@
     "src_end_sec": 434.461,
     "speed_factor": 0.97,
     "frames": 89,
-    "match_score": 4.0,
+    "match_score": 3.0,
     "flag": "low_match"
   },
   {
     "beat_id": 11,
     "shot_index": 0,
-    "src_start_sec": 533.625,
-    "src_end_sec": 536.11,
+    "src_start_sec": 526.583,
+    "src_end_sec": 529.068,
     "speed_factor": 1.05,
     "frames": 71,
-    "match_score": 9.0,
+    "match_score": 6.0,
     "flag": null
   },
   {
     "beat_id": 11,
     "shot_index": 1,
-    "src_start_sec": 526.583,
-    "src_end_sec": 529.068,
-    "speed_factor": 1.05,
+    "src_start_sec": 503.833,
+    "src_end_sec": 506.129,
+    "speed_factor": 0.97,
     "frames": 71,
-    "match_score": 4.0,
-    "flag": "low_match"
+    "match_score": 5.0,
+    "flag": null
   },
   {
     "beat_id": 12,
@@ -226,7 +226,7 @@
     "src_end_sec": 543.508,
     "speed_factor": 0.97,
     "frames": 75,
-    "match_score": 8.0,
+    "match_score": 9.0,
     "flag": null
   },
   {
@@ -246,7 +246,7 @@
     "src_end_sec": 581.328,
     "speed_factor": 0.97,
     "frames": 72,
-    "match_score": 9.0,
+    "match_score": 10.0,
     "flag": null
   },
   {
@@ -276,7 +276,7 @@
     "src_end_sec": 657.688,
     "speed_factor": 1.05,
     "frames": 78,
-    "match_score": 7.0,
+    "match_score": 6.0,
     "flag": null
   },
   {
@@ -292,8 +292,8 @@
   {
     "beat_id": 15,
     "shot_index": 1,
-    "src_start_sec": 712.792,
-    "src_end_sec": 715.592,
+    "src_start_sec": 700.292,
+    "src_end_sec": 703.092,
     "speed_factor": 1.05,
     "frames": 80,
     "match_score": 4.0,
@@ -302,21 +302,21 @@
   {
     "beat_id": 16,
     "shot_index": 0,
-    "src_start_sec": 711.0,
-    "src_end_sec": 714.007,
-    "speed_factor": 0.97,
+    "src_start_sec": 712.792,
+    "src_end_sec": 716.047,
+    "speed_factor": 1.05,
     "frames": 93,
-    "match_score": 1.0,
-    "flag": "low_match"
+    "match_score": 8.0,
+    "flag": null
   },
   {
     "beat_id": 16,
     "shot_index": 1,
-    "src_start_sec": 712.792,
-    "src_end_sec": 716.012,
-    "speed_factor": 1.05,
+    "src_start_sec": 711.0,
+    "src_end_sec": 713.975,
+    "speed_factor": 0.97,
     "frames": 92,
-    "match_score": 8.0,
-    "flag": null
+    "match_score": 1.0,
+    "flag": "low_match"
   }
 ]

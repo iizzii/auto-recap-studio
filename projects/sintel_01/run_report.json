@@ -19,7 +19,7 @@
     "Integrated loudness -99.00 LUFS differs from target -14.0."
   ],
   "errors": [],
-  "duration_sec": 960.15,
+  "duration_sec": 667.02,
   "source_sha256": "97f1dbc66231df42ad49bd8c29aa174b8f48933058e47e7157d4ba63d93a8efa",
   "output_files": [
     "/tmp/recap_work/sintel_01/output/final_short.mp4",
@@ -28,9 +28,9 @@
     "/tmp/recap_work/sintel_01/output/thumbnail.jpg"
   ],
   "publish_results": {
-    "artifact": {
-      "status": "ready",
-      "path": "/tmp/recap_work/sintel_01/output/final_short.mp4"
+    "telegram": {
+      "status": "notice_sent",
+      "video_mb": 53.97
     }
   }
 }

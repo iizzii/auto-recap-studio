@@ -6,6 +6,13 @@ runtime:
 source:
   exclude_head_sec: 0
   exclude_tail_pct: 0
+  pass1_visual_overview: false
+
+shots:
+  min_luma_std: 5.0
+
+tts:
+  ending_pad_frames: 15
 
 script:
   min_words: 40

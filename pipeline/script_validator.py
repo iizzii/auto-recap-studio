@@ -17,6 +17,30 @@ _BANNED_BEAT1_OPENERS = (
     "meet ",
 )
 
+_BANNED_CLICHES = (
+    "establishes",
+    "backstory",
+    "pacing shift",
+    "ramps up",
+    "viewer tension",
+    "emotional stakes",
+    "emotional beat",
+    "character motivation",
+    "narrative arc",
+    "the protagonist",
+    "unresolved",
+    "cinematic",
+    "visceral",
+    "masterfully",
+    "incredibly intense situation",
+    "dialogue reveal",
+)
+
+_VAGUE_BEAT1_PLACEHOLDERS = (
+    "someone finally",
+    "a mysterious stranger",
+)
+
 _PROPER_NOUN_RE = re.compile(r"(?<!^)(?<!\. )(?<!\? )(?<!\! )\b([A-Z][a-z]{2,})\b")
 
 
@@ -73,6 +97,15 @@ def validate_manifest(
             for opener in _BANNED_BEAT1_OPENERS:
                 if low.startswith(opener):
                     errors.append(f"Beat 1 uses banned opener '{opener.strip()}'.")
+            if ledger and any(ev.get("characters") or ev.get("visual_notes") for ev in ledger.get("events", [])):
+                for vague in _VAGUE_BEAT1_PLACEHOLDERS:
+                    if vague in low:
+                        errors.append(f"Beat 1 uses vague placeholder '{vague}'; name the character/visual.")
+
+        low_nar = beat.narration.lower()
+        for cliche in _BANNED_CLICHES:
+            if cliche in low_nar:
+                errors.append(f"Beat {beat.beat_id} uses banned film-essay cliche '{cliche}'.")
 
         if beat.source_window_start_sec < min_allowed - 0.01:
             errors.append(

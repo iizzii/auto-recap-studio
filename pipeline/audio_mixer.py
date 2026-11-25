@@ -16,11 +16,14 @@ _BGM_MANIFEST = Path(__file__).resolve().parent.parent / "assets" / "bgm" / "bgm
 
 
 def _synth_bgm_lavfi(dur_sec: float, out_wav: Path, mood: str) -> Path:
-    """Generate a clean ambient pad loop in /tmp via FFmpeg lavfi."""
-    freq = 110 if mood in ("tense", "cliffhanger", "emotional") else 146.83
+    """Generate a soft rhythmic cinematic suspense pulse + minor-key chord progression via lavfi."""
+    root = 98.0 if mood in ("tense", "cliffhanger", "emotional", "hook") else 110.0
+    # Subtle 1.6 Hz pulsing bass + warm minor-key triad progression + stereo-ready chorus
     expr = (
-        f"0.05*sin(2*PI*{freq}*t)+0.03*sin(2*PI*{freq * 1.5}*t)"
-        f"+0.02*sin(2*PI*{freq * 2}*t)"
+        f"(0.045*(0.55+0.45*sin(2*PI*1.6*t))*sin(2*PI*{root}*t)"
+        f"+0.025*sin(2*PI*{root * 1.1892}*t)"
+        f"+0.020*sin(2*PI*{root * 1.4983}*t)"
+        f"+0.015*sin(2*PI*{root * 2.0}*t*(1+0.002*sin(2*PI*0.25*t))))"
     )
     ffutil.run(
         [
@@ -31,7 +34,7 @@ def _synth_bgm_lavfi(dur_sec: float, out_wav: Path, mood: str) -> Path:
             "-i",
             f"aevalsrc={expr}:s=48000:d={dur_sec:.3f}",
             "-af",
-            "lowpass=f=600,afade=t=in:st=0:d=0.8",
+            "lowpass=f=900,aecho=0.8:0.7:40:0.25,afade=t=in:st=0:d=0.8",
             "-ar",
             "48000",
             "-ac",

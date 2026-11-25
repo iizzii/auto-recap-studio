@@ -168,6 +168,7 @@ def run(
         mock_llm=mock_llm,
         force=force,
         budget=budget,
+        source_path=source_path,
     )
     run_rep.warnings.extend(script_warnings)
     run_rep.stages_completed.append("script")

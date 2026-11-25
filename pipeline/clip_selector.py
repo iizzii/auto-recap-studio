@@ -56,13 +56,14 @@ def _score_proxy_segment(
     rel_start: float,
     rel_end: float,
     sample_fps: float = 2.0,
-) -> tuple[float, float]:
-    """Return ``(mean_luma, motion_energy)`` for a segment in an open VideoCapture."""
+) -> tuple[float, float, float]:
+    """Return ``(mean_luma, mean_luma_std, motion_energy)`` for a segment in an open VideoCapture."""
     cap.set(cv2.CAP_PROP_POS_MSEC, rel_start * 1000.0)
     src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     step_frames = max(1, int(round(src_fps / max(0.5, sample_fps))))
 
     lumas: list[float] = []
+    stds: list[float] = []
     diffs: list[float] = []
     prev_gray: np.ndarray | None = None
     cur_t = rel_start
@@ -75,6 +76,7 @@ def _score_proxy_segment(
         if frame_idx % step_frames == 0:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             lumas.append(float(np.mean(gray)))
+            stds.append(float(np.std(gray)))
             if prev_gray is not None:
                 diffs.append(float(np.mean(cv2.absdiff(gray, prev_gray))))
             prev_gray = gray
@@ -82,8 +84,9 @@ def _score_proxy_segment(
         cur_t = rel_start + (frame_idx / src_fps)
 
     mean_luma = float(np.mean(lumas)) if lumas else 0.0
+    mean_std = float(np.mean(stds)) if stds else 0.0
     motion = float(np.mean(diffs)) if diffs else 0.0
-    return mean_luma, motion
+    return mean_luma, mean_std, motion
 
 
 def _sample_three_frames(
@@ -183,6 +186,7 @@ def select_shots(
     proxy_h = int(shots_cfg.get("proxy_height", 320))
     scene_thresh = float(shots_cfg.get("scene_threshold", 27.0))
     min_luma = float(shots_cfg.get("min_luma", 15))
+    min_luma_std = float(shots_cfg.get("min_luma_std", 18.0))
     sample_fps = float(shots_cfg.get("motion_sample_fps", 2))
     candidates_limit = int(shots_cfg.get("candidates_per_beat", 6))
     never_reuse = bool(shots_cfg.get("never_reuse_source_range", True))
@@ -233,8 +237,8 @@ def select_shots(
         scored_cands: list[dict[str, Any]] = []
         try:
             for rel_s, rel_e in raw_spans:
-                luma, motion = _score_proxy_segment(cap, rel_s, rel_e, sample_fps)
-                if luma < min_luma:
+                luma, luma_std, motion = _score_proxy_segment(cap, rel_s, rel_e, sample_fps)
+                if luma < min_luma or luma_std < min_luma_std:
                     continue
                 abs_s = win_start + rel_s
                 abs_e = win_start + rel_e

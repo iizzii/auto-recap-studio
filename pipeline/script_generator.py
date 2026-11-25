@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from pipeline import srt_parser
+from pipeline import ffutil, srt_parser
 from pipeline.budget import TimeBudget
 from pipeline.models import Beat, ProjectManifest, RightsRecord
 from pipeline.rights_guard import build_attribution_block
@@ -130,11 +130,86 @@ def _strip_json_fences(raw: str) -> str:
     return text
 
 
+def _extract_pass1_contact_sheets(
+    source_path: Path,
+    allowed_range: tuple[float, float],
+    work_dir: Path,
+    config: dict[str, Any],
+) -> list[Path]:
+    """Sample evenly spaced frames across *allowed_range* and pack into 1-3 labeled contact sheets."""
+    from PIL import Image, ImageDraw
+
+    src_cfg = config.get("source", {})
+    max_frames = int(src_cfg.get("pass1_max_frames", 48))
+    cols = int(src_cfg.get("pass1_grid_cols", 4))
+    rows = int(src_cfg.get("pass1_grid_rows", 4))
+    per_sheet = max(1, cols * rows)
+
+    start_s, end_s = allowed_range
+    dur = max(8.0, end_s - start_s)
+    n_frames = min(max_frames, max(8, int(dur // 8)))
+    step = dur / max(1, n_frames)
+
+    sheets_dir = work_dir / "pass1_sheets"
+    sheets_dir.mkdir(parents=True, exist_ok=True)
+    tile_w, tile_h = 320, 180
+    tiles: list[Image.Image] = []
+
+    for i in range(n_frames):
+        ts = start_s + (i + 0.5) * step
+        tile_path = sheets_dir / f"tile_{i:03d}.jpg"
+        try:
+            ffutil.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    f"{ts:.2f}",
+                    "-i",
+                    str(source_path),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    f"scale={tile_w}:{tile_h}",
+                    "-q:v",
+                    "5",
+                    str(tile_path),
+                ]
+            )
+            img = Image.open(tile_path).convert("RGB")
+        except Exception:
+            img = Image.new("RGB", (tile_w, tile_h), (20, 20, 20))
+        finally:
+            tile_path.unlink(missing_ok=True)
+
+        draw = ImageDraw.Draw(img)
+        mm, ss = divmod(int(ts), 60)
+        label = f"[{mm:02d}:{ss:02d}]"
+        draw.rectangle([4, 4, 72, 22], fill=(0, 0, 0))
+        draw.text((8, 7), label, fill=(255, 255, 255))
+        tiles.append(img)
+
+    sheet_paths: list[Path] = []
+    for s_idx in range(0, len(tiles), per_sheet):
+        batch = tiles[s_idx : s_idx + per_sheet]
+        canvas = Image.new("RGB", (cols * tile_w, rows * tile_h), (12, 12, 12))
+        for idx, tile in enumerate(batch):
+            r, c = divmod(idx, cols)
+            canvas.paste(tile, (c * tile_w, r * tile_h))
+        if canvas.width > 1280 or canvas.height > 720:
+            canvas.thumbnail((1280, 720))
+        out_sheet = sheets_dir / f"sheet_{len(sheet_paths) + 1:02d}.jpg"
+        canvas.save(out_sheet, format="JPEG", quality=78, optimize=True)
+        sheet_paths.append(out_sheet)
+    return sheet_paths
+
+
 def _call_llm(
     prompt: str,
     config: dict[str, Any],
     response_schema: Any = None,
     budget: TimeBudget | None = None,
+    images: list[Path] | None = None,
 ) -> str:
     """Call Gemini (google-genai) or an OpenAI-compatible endpoint."""
     llm_cfg = config.get("llm", {})
@@ -177,9 +252,16 @@ def _call_llm(
                     }
                     if response_schema is not None:
                         gen_kwargs["response_schema"] = response_schema
+                    contents: Any = prompt
+                    if images:
+                        contents = [prompt] + [
+                            types.Part.from_bytes(data=p.read_bytes(), mime_type="image/jpeg")
+                            for p in images
+                            if p.exists()
+                        ]
                     resp = client.models.generate_content(
                         model=model_name,
-                        contents=prompt,
+                        contents=contents,
                         config=types.GenerateContentConfig(**gen_kwargs),
                     )
                     return resp.text or ""
@@ -341,6 +423,7 @@ def generate_or_load_script(
     mock_llm: bool = False,
     force: bool = False,
     budget: TimeBudget | None = None,
+    source_path: Path | None = None,
 ) -> tuple[ProjectManifest, list[str]]:
     """Load an existing committed script manifest or generate one via two-pass LLM."""
     manifest_path = project_dir / "02_script_manifest.json"
@@ -375,11 +458,24 @@ def generate_or_load_script(
     overlap_tokens = int(llm_cfg.get("chunk_overlap_tokens", 200))
     text_chunks = srt_parser.format_chunks_for_llm(segments, chunk_tokens, overlap_tokens)
 
+    pass1_sheets: list[Path] = []
+    if (
+        source_path is not None
+        and config.get("source", {}).get("pass1_visual_overview", True)
+    ):
+        pass1_sheets = _extract_pass1_contact_sheets(
+            source_path, allowed_range, work_dir, config
+        )
+
     all_events: list[dict[str, Any]] = []
     for idx, chunk in enumerate(text_chunks):
         prompt = f"{pass1_tmpl}\n\nTRANSCRIPT CHUNK {idx + 1}/{len(text_chunks)}:\n{chunk}"
         raw_out = _call_llm(
-            prompt, config, response_schema=EventLedgerResponse, budget=budget
+            prompt,
+            config,
+            response_schema=EventLedgerResponse,
+            budget=budget,
+            images=pass1_sheets if idx == 0 else None,
         )
         parsed = json.loads(_strip_json_fences(raw_out))
         all_events.extend(parsed.get("events", []))

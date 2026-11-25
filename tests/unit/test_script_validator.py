@@ -80,3 +80,22 @@ def test_soft_proper_noun_warning_not_hard_error() -> None:
     errors, warnings = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
     assert errors == []
     assert any("Alice" in w for w in warnings)
+
+
+def test_banned_film_essay_cliche_rejected() -> None:
+    manifest = _make_manifest()
+    manifest.beats[1].narration = (
+        "This intense dialogue efficiently establishes crucial backstory and emotional stakes for her."
+    )
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0))
+    assert any("banned film-essay cliche" in e.lower() for e in errors)
+
+
+def test_vague_beat1_placeholder_rejected_with_ledger() -> None:
+    manifest = _make_manifest()
+    manifest.beats[0].narration = (
+        "A mysterious stranger walks through the ruined city gate carrying a glowing blade."
+    )
+    ledger = {"events": [{"summary": "Sintel searches", "characters": ["Sintel"], "visual_notes": "snowy gate", "craft_notes": ""}]}
+    errors, _ = validate_manifest(manifest, _base_config(), (0.0, 50.0), ledger)
+    assert any("vague placeholder" in e.lower() for e in errors)

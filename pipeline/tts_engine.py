@@ -127,7 +127,8 @@ def _process_and_pad_beat(
     trim_db = int(tts_cfg.get("trim_silence_db", -45))
     pause_max_s = float(tts_cfg.get("internal_pause_max_ms", 150)) / 1000.0
     lufs = float(tts_cfg.get("beat_loudness_lufs", -16))
-    gap_frames = 0 if is_last else int(tts_cfg.get("beat_gap_frames", 2))
+    ending_pad = int(tts_cfg.get("ending_pad_frames", 15))
+    gap_frames = ending_pad if is_last else int(tts_cfg.get("beat_gap_frames", 2))
 
     cleaned_wav = beat_wav.with_name(beat_wav.stem + "_clean.wav")
     af_parts = [

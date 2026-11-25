@@ -36,8 +36,12 @@ def _measure_lufs(media_path: Path) -> float:
     return float(matches[-1]) if matches else -99.0
 
 
-def _max_silence_ms(media_path: Path) -> float:
-    """Return max detected silence duration in milliseconds."""
+def _max_silence_ms(
+    media_path: Path,
+    total_dur_sec: float = 0.0,
+    ignore_trailing_sec: float = 0.0,
+) -> float:
+    """Return max detected silence duration in milliseconds, ignoring trailing outro pad."""
     res = ffutil.run(
         [
             "ffmpeg",
@@ -51,8 +55,16 @@ def _max_silence_ms(media_path: Path) -> float:
         ],
         check=False,
     )
-    durs = [float(x) for x in re.findall(r"silence_duration:\s*(\d+(?:\.\d+)?)", res.stderr)]
-    return max(durs) * 1000.0 if durs else 0.0
+    cutoff = total_dur_sec - ignore_trailing_sec if total_dur_sec > ignore_trailing_sec else 1e9
+    valid_durs: list[float] = []
+    for line in res.stderr.splitlines():
+        m = re.search(r"silence_end:\s*(\d+(?:\.\d+)?)\s*\|\s*silence_duration:\s*(\d+(?:\.\d+)?)", line)
+        if m:
+            s_end = float(m.group(1))
+            s_dur = float(m.group(2))
+            if s_end < cutoff:
+                valid_durs.append(s_dur)
+    return max(valid_durs) * 1000.0 if valid_durs else 0.0
 
 
 def _max_black_sec(media_path: Path) -> float:
@@ -138,7 +150,9 @@ def run_qa_gate(
     if abs(lufs - target_lufs) > 2.0:
         warnings.append(f"Integrated loudness {lufs:.2f} LUFS differs from target {target_lufs}.")
 
-    silence_ms = _max_silence_ms(final_mp4)
+    ending_pad_frames = int(config.get("tts", {}).get("ending_pad_frames", 15))
+    ignore_tail_sec = (ending_pad_frames / exp_fps) + 0.2
+    silence_ms = _max_silence_ms(final_mp4, total_dur_sec=v_dur, ignore_trailing_sec=ignore_tail_sec)
     if silence_ms > max_sil_ms:
         warnings.append(f"Max silence gap {silence_ms:.0f}ms > {max_sil_ms}ms.")
 

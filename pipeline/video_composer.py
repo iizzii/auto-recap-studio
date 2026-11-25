@@ -54,12 +54,32 @@ def _render_banner_png(banner_text: str, width: int, out_png: Path) -> Path:
     return out_png
 
 
+def compute_fg_dimensions(
+    src_w: int,
+    src_h: int,
+    width: int = 1080,
+    min_fg_height_px: int = 760,
+    max_horizontal_crop_pct: float = 42.0,
+) -> tuple[int, int]:
+    """Compute ``(scaled_w, target_h)`` for the foreground layer, boosting ultra-wide 2.39:1."""
+    aspect = max(0.1, src_w / max(1, src_h))
+    nat_h = round(width / aspect)
+    target_h = max(nat_h, min_fg_height_px)
+    scaled_w = round(target_h * aspect)
+    if scaled_w > width and (scaled_w - width) / scaled_w > max_horizontal_crop_pct / 100.0:
+        scaled_w = int(width / (1.0 - max_horizontal_crop_pct / 100.0))
+        target_h = int(scaled_w / aspect)
+    target_h = target_h - (target_h % 2)
+    return scaled_w, max(2, target_h)
+
+
 def _render_single_shot(
     shot: Shot,
     source_path: Path,
     banner_png: Path | None,
     out_mp4: Path,
     config: dict[str, Any],
+    src_dims: tuple[int, int] = (1920, 1080),
 ) -> Path:
     """Extract, scale/blur/zoom, grade, and frame-lock a single shot intermediate."""
     rt = config.get("runtime", {})
@@ -72,17 +92,22 @@ def _render_single_shot(
     height = int(rt.get("height", 1920))
     bg_blur = str(layout.get("bg_blur", "boxblur=25:5"))
     bg_bright = float(layout.get("bg_brightness", -0.22))
-    fg_zoom = float(layout.get("fg_zoom_pct", 2))
+    min_fg_h = int(layout.get("min_fg_height_px", 760))
+    max_crop_pct = float(layout.get("max_horizontal_crop_pct", 42.0))
     banner_y = int(layout.get("banner", {}).get("y", 200))
 
-    fg_w = int(round(width * (1.0 + fg_zoom / 100.0)))
-    if fg_w % 2:
-        fg_w += 1
+    _, target_h = compute_fg_dimensions(
+        src_dims[0],
+        src_dims[1],
+        width=width,
+        min_fg_height_px=min_fg_h,
+        max_horizontal_crop_pct=max_crop_pct,
+    )
 
     src_dur = max(0.2, shot.src_end_sec - shot.src_start_sec)
     pts_expr = f"PTS/{shot.speed_factor:.4f}"
 
-    fg_chain = f"scale={fg_w}:-2,crop={width}:ih:(iw-{width})/2:0"
+    fg_chain = f"scale=-2:{target_h},crop={width}:{target_h}:(iw-{width})/2:0"
     if grade.get("enabled", True):
         eq_str = str(grade.get("eq", "contrast=1.04:saturation=1.06"))
         unsharp_str = str(grade.get("unsharp", "3:3:0.3"))
@@ -176,9 +201,13 @@ def compose_video(
         for s in shots
     ]
 
+    info = ffutil.probe(source_path)
+    v_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+    src_dims = (int(v_stream.get("width", 1920)), int(v_stream.get("height", 1080)))
+
     with ThreadPoolExecutor(max_workers=parallel_jobs) as pool:
         futures = [
-            pool.submit(_render_single_shot, s, source_path, banner_png, p, config)
+            pool.submit(_render_single_shot, s, source_path, banner_png, p, config, src_dims)
             for s, p in tasks
         ]
         intermediates = [f.result() for f in futures]

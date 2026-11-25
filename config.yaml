@@ -2,7 +2,7 @@ runtime:
   fps: 30
   width: 1080
   height: 1920
-  min_duration_sec: 95
+  min_duration_sec: 75
   max_duration_sec: 175
   work_dir: /tmp/recap_work
   min_free_disk_gb: 4
@@ -38,11 +38,11 @@ llm:
 
 script:
   style: commentary
-  min_words: 260
+  min_words: 220
   max_words: 420
   min_beats: 12
   max_beats: 24
-  beat_min_words: 14
+  beat_min_words: 12
   beat_max_words: 28
   min_commentary_share: 0.25
   split_cliffhanger_range: [0.40, 0.50]

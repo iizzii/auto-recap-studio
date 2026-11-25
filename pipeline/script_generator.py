@@ -226,7 +226,7 @@ def _call_llm(
         client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
         primary_model = str(llm_cfg.get("model", "gemini-3.8-flash"))
         models_to_try = [primary_model] + [
-            m for m in ("gemini-3.5-flash-lite", "gemini-3.5-flash") if m != primary_model
+            m for m in ("gemini-3.5-flash", "gemini-3.5-flash-lite") if m != primary_model
         ]
         backoff_schedule = (5.0, 12.0, 25.0, 45.0)
         last_exc: Exception | None = None

@@ -35,9 +35,7 @@ def _synth_bgm_lavfi(dur_sec: float, out_wav: Path, mood: str) -> Path:
             "-i",
             f"aevalsrc={expr}:s=48000:d={dur_sec:.3f}",
             "-af",
-            "lowpass=f=800,highpass=f=55,aecho=0.6:0.65:38:0.18,afade=t=in:st=0:d=1.2,afade=t=out:st={fade_st:.3f}:d=1.5".format(
-                fade_st=max(0.0, dur_sec - 1.5)
-            ),
+            f"lowpass=f=800,highpass=f=55,aecho=0.6:0.65:38:0.18,afade=t=in:st=0:d=1.2,afade=t=out:st={max(0.0, dur_sec - 1.5):.3f}:d=1.5",
             "-ar",
             "48000",
             "-ac",

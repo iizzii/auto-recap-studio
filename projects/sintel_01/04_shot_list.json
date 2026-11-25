@@ -1,0 +1,202 @@
+[
+  {
+    "beat_id": 1,
+    "shot_index": 0,
+    "src_start_sec": 109.333,
+    "src_end_sec": 111.538,
+    "speed_factor": 1.05,
+    "frames": 63,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 1,
+    "shot_index": 1,
+    "src_start_sec": 120.042,
+    "src_end_sec": 122.247,
+    "speed_factor": 1.05,
+    "frames": 63,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 2,
+    "shot_index": 0,
+    "src_start_sec": 115.833,
+    "src_end_sec": 118.194,
+    "speed_factor": 0.97,
+    "frames": 73,
+    "match_score": 4.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 2,
+    "shot_index": 1,
+    "src_start_sec": 123.125,
+    "src_end_sec": 125.645,
+    "speed_factor": 1.05,
+    "frames": 72,
+    "match_score": 3.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 3,
+    "shot_index": 0,
+    "src_start_sec": 150.458,
+    "src_end_sec": 154.028,
+    "speed_factor": 1.05,
+    "frames": 102,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 4,
+    "shot_index": 0,
+    "src_start_sec": 214.917,
+    "src_end_sec": 217.402,
+    "speed_factor": 1.05,
+    "frames": 71,
+    "match_score": 10.0,
+    "flag": null
+  },
+  {
+    "beat_id": 4,
+    "shot_index": 1,
+    "src_start_sec": 211.75,
+    "src_end_sec": 214.235,
+    "speed_factor": 1.05,
+    "frames": 71,
+    "match_score": 6.0,
+    "flag": null
+  },
+  {
+    "beat_id": 5,
+    "shot_index": 0,
+    "src_start_sec": 248.167,
+    "src_end_sec": 250.365,
+    "speed_factor": 0.97,
+    "frames": 68,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 5,
+    "shot_index": 1,
+    "src_start_sec": 224.125,
+    "src_end_sec": 226.47,
+    "speed_factor": 1.05,
+    "frames": 67,
+    "match_score": 2.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 6,
+    "shot_index": 0,
+    "src_start_sec": 250.875,
+    "src_end_sec": 252.958,
+    "speed_factor": 1.0081,
+    "frames": 62,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 6,
+    "shot_index": 1,
+    "src_start_sec": 256.583,
+    "src_end_sec": 258.718,
+    "speed_factor": 1.05,
+    "frames": 61,
+    "match_score": 4.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 7,
+    "shot_index": 0,
+    "src_start_sec": 306.292,
+    "src_end_sec": 308.532,
+    "speed_factor": 1.05,
+    "frames": 64,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 7,
+    "shot_index": 1,
+    "src_start_sec": 326.458,
+    "src_end_sec": 328.528,
+    "speed_factor": 0.97,
+    "frames": 64,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 8,
+    "shot_index": 0,
+    "src_start_sec": 330.375,
+    "src_end_sec": 333.576,
+    "speed_factor": 0.97,
+    "frames": 99,
+    "match_score": 7.0,
+    "flag": null
+  },
+  {
+    "beat_id": 9,
+    "shot_index": 0,
+    "src_start_sec": 396.875,
+    "src_end_sec": 400.69,
+    "speed_factor": 0.97,
+    "frames": 118,
+    "match_score": 4.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 10,
+    "shot_index": 0,
+    "src_start_sec": 391.875,
+    "src_end_sec": 396.075,
+    "speed_factor": 1.05,
+    "frames": 120,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 11,
+    "shot_index": 0,
+    "src_start_sec": 420.0,
+    "src_end_sec": 422.205,
+    "speed_factor": 1.05,
+    "frames": 63,
+    "match_score": 9.0,
+    "flag": null
+  },
+  {
+    "beat_id": 11,
+    "shot_index": 1,
+    "src_start_sec": 431.583,
+    "src_end_sec": 433.753,
+    "speed_factor": 1.05,
+    "frames": 62,
+    "match_score": 4.0,
+    "flag": "low_match"
+  },
+  {
+    "beat_id": 12,
+    "shot_index": 0,
+    "src_start_sec": 561.208,
+    "src_end_sec": 565.088,
+    "speed_factor": 0.97,
+    "frames": 120,
+    "match_score": 8.0,
+    "flag": null
+  },
+  {
+    "beat_id": 13,
+    "shot_index": 0,
+    "src_start_sec": 598.083,
+    "src_end_sec": 601.802,
+    "speed_factor": 0.97,
+    "frames": 115,
+    "match_score": 3.0,
+    "flag": "low_match"
+  }
+]

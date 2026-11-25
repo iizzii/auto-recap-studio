@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "project_slug": "sintel_01",
+  "style": "commentary",
+  "part_number": 0,
+  "title": "Sintel Searches For Her Lost Companion #shorts",
+  "banner_text": "SEARCHING FOR SCALES",
+  "description": "Sintel travels through dangerous lands with a dark blade on a desperate quest to find a dragon, accompanied by a creature named Scales.",
+  "hashtags": [
+    "#sintel",
+    "#dragon",
+    "#animated",
+    "#fantasy",
+    "#shorts"
+  ],
+  "source_title": "Sintel",
+  "attribution_block": "Source: \"Sintel\" by Blender Foundation (2010), CC BY (https://creativecommons.org/licenses/by/3.0/). Original: https://durian.blender.org/sharing/. Narration, selection, editing, and commentary created for this channel. Narration generated with text-to-speech.",
+  "beats": [
+    {
+      "beat_id": 1,
+      "narration": "A mysterious stranger warns the traveler about moving alone with a dangerous blade.",
+      "source_window_start_sec": 107.0,
+      "source_window_end_sec": 120.0,
+      "visual_cue": "Two characters conversing outdoors, one holding a dark sword.",
+      "mood": "hook",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 2,
+      "narration": "This intense dialogue efficiently establishes crucial backstory and core character motivation.",
+      "source_window_start_sec": 120.0,
+      "source_window_end_sec": 135.0,
+      "visual_cue": "Close up of the dark blade outdoors.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 3,
+      "narration": "The stranger bluntly asks about the dangerous quest to find a dragon.",
+      "source_window_start_sec": 135.0,
+      "source_window_end_sec": 152.0,
+      "visual_cue": "Wide shot of landscape during the conversation.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 4,
+      "narration": "The protagonist carefully tends to a loyal companion named Scales before trouble strikes.",
+      "source_window_start_sec": 207.0,
+      "source_window_end_sec": 220.0,
+      "visual_cue": "The protagonist calming and caring for a creature named Scales.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 5,
+      "narration": "An aggressive pursuit immediately follows the surprisingly quiet animal tending moment.",
+      "source_window_start_sec": 220.0,
+      "source_window_end_sec": 245.0,
+      "visual_cue": "A sudden chase and combat action sequence outdoors.",
+      "mood": "action",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 6,
+      "narration": "This deliberate pacing shift ramps up viewer tension with sudden explosive action.",
+      "source_window_start_sec": 245.0,
+      "source_window_end_sec": 265.0,
+      "visual_cue": "Fast movement and running figures in the dust.",
+      "mood": "action",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 7,
+      "narration": "Suddenly, Sintel loudly shouts for Scales during an incredibly intense situation.",
+      "source_window_start_sec": 304.0,
+      "source_window_end_sec": 330.0,
+      "visual_cue": "Sintel desperately calling out in a rugged outdoor environment.",
+      "mood": "emotional",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 8,
+      "narration": "Sintel later laments a devastating failure right on the dusty ground.",
+      "source_window_start_sec": 330.0,
+      "source_window_end_sec": 360.0,
+      "visual_cue": "Sintel reacting to a perceived failure on the ground.",
+      "mood": "emotional",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 9,
+      "narration": "Someone finally tells Sintel they are now deep inside dangerous dragon lands.",
+      "source_window_start_sec": 360.0,
+      "source_window_end_sec": 395.0,
+      "visual_cue": "Two figures talking near jagged rock formations.",
+      "mood": "reveal",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 10,
+      "narration": "This unexpected dialogue reveal deeply elevates the raw emotional stakes.",
+      "source_window_start_sec": 395.0,
+      "source_window_end_sec": 425.0,
+      "visual_cue": "Panning shot over vast dragon lands.",
+      "mood": "reveal",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 11,
+      "narration": "Sintel points directly toward the horizon, heading toward the emotional climax.",
+      "source_window_start_sec": 425.0,
+      "source_window_end_sec": 457.0,
+      "visual_cue": "Sintel looking resolutely toward the horizon.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 12,
+      "narration": "Sintel repeatedly calls out the name Scales in absolute heartbreaking despair.",
+      "source_window_start_sec": 557.0,
+      "source_window_end_sec": 590.0,
+      "visual_cue": "Sintel searching anxiously and calling out.",
+      "mood": "emotional",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 13,
+      "narration": "This provides a haunting and completely unresolved emotional beat to close.",
+      "source_window_start_sec": 590.0,
+      "source_window_end_sec": 626.0,
+      "visual_cue": "Sintel alone in the vast landscape.",
+      "mood": "calm",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    }
+  ],
+  "shots": []
+}

@@ -16,11 +16,10 @@
     "publish"
   ],
   "warnings": [
-    "Integrated loudness -99.00 LUFS differs from target -14.0.",
-    "Caption-to-script word match 92.26% < 95%."
+    "Integrated loudness -99.00 LUFS differs from target -14.0."
   ],
   "errors": [],
-  "duration_sec": 334.2,
+  "duration_sec": 592.66,
   "source_sha256": "bf1f4b99a96239fc0c0f29e78ddbebbd66deb34555e75abfb07ce8766fda6726",
   "output_files": [
     "/tmp/recap_work/sintel_01/output/final_short.mp4",

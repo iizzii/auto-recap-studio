@@ -108,10 +108,11 @@ def _render_single_shot(
     fps = int(rt.get("fps", 30))
     width = int(rt.get("width", 1080))
     height = int(rt.get("height", 1920))
-    bg_blur = str(layout.get("bg_blur", "boxblur=25:5"))
-    bg_bright = float(layout.get("bg_brightness", -0.22))
-    min_fg_h = int(layout.get("min_fg_height_px", 760))
-    max_crop_pct = float(layout.get("max_horizontal_crop_pct", 42.0))
+    bg_blur = str(layout.get("bg_blur", "boxblur=20:5"))
+    bg_bright = float(layout.get("bg_brightness", -0.04))
+    bg_sat = float(layout.get("bg_saturation", 1.25))
+    min_fg_h = int(layout.get("min_fg_height_px", 1020))
+    max_crop_pct = float(layout.get("max_horizontal_crop_pct", 45.0))
     banner_y = int(layout.get("banner", {}).get("y", 200))
 
     _, target_h = compute_fg_dimensions(
@@ -146,7 +147,7 @@ def _render_single_shot(
     fc_parts = [
         f"[0:v]{pre_prefix}setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,split=2[bg_in][fg_in]",
         f"[bg_in]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},{bg_blur},eq=brightness={bg_bright}[bg]",
+        f"crop={width}:{height},{bg_blur},eq=brightness={bg_bright}:saturation={bg_sat}[bg]",
         f"[fg_in]{fg_chain}[fg]",
         "[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]",
     ]

@@ -65,11 +65,11 @@ tts:
   mock_tone_hz: 280
 
 shots:
-  min_shot_sec: 2.0
-  max_shot_sec: 4.0
-  hard_max_shot_sec: 4.5
-  target_shot_sec: 2.8
-  speed_range: [0.97, 1.10]
+  min_shot_sec: 1.4
+  max_shot_sec: 3.0
+  hard_max_shot_sec: 3.5
+  target_shot_sec: 2.0
+  speed_range: [0.98, 1.10]
   proxy_height: 320
   scene_threshold: 27.0
   min_luma: 15
@@ -89,51 +89,52 @@ vision:
 
 layout:
   mode: blurred_letterbox
-  bg_blur: "boxblur=25:5"
-  bg_brightness: -0.22
-  fg_zoom_pct: 2
-  min_fg_height_px: 760
-  max_horizontal_crop_pct: 42
+  bg_blur: "boxblur=20:5"
+  bg_brightness: -0.04
+  bg_saturation: 1.25
+  fg_zoom_pct: 3
+  min_fg_height_px: 1020
+  max_horizontal_crop_pct: 45
   auto_deinterlace: true
   combing_threshold: 1.12
   vintage_deinterlace_year: 1985
   overscan_trim_pct: 3.0
   banner:
-    enabled: true
+    enabled: false
     y: 200
     max_words: 6
 
 grade:
   enabled: true
-  eq: "contrast=1.04:saturation=1.06"
-  unsharp: "3:3:0.3"
+  eq: "contrast=1.08:saturation=1.22:brightness=0.02"
+  unsharp: "5:5:0.7:5:5:0.0"
 
 captions:
+  mode: single_word
   model: base.en
   device: cpu
   compute_type: int8
   cpu_threads: 2
-  words_per_chunk: [2, 4]
-  max_chars_per_line: 18
+  words_per_chunk: [1, 1]
+  min_word_display_ms: 110
+  max_chars_per_line: 16
   font_name: "Montserrat ExtraBold"
   font_fallback: "DejaVu Sans Bold"
-  font_size: 78
-  outline_px: 5
-  shadow_px: 2
-  active_color: "#FFE600"
+  font_size: 88
+  outline_px: 6
+  shadow_px: 3
+  active_color: "#FFFFFF"
   inactive_color: "#FFFFFF"
   alignment: 2
-  margin_v: 420
-  accent_rotation: ["#FFE600", "#00E5FF", "#FF5C8A", "#9BFF3B"]
+  margin_v: 500
+  accent_rotation: ["#FFFFFF"]
 
 audio:
   source_audio_mode: "off"
   source_ducked_db: -26
-  bgm_db_below_voice: -21
-  bgm_fade_out_sec: 1.5
-  sfx_on_transitions: true
-  sfx_whoosh_db: -16
-  sfx_whoosh_dur_sec: 0.35
+  bgm_db_below_voice: -15
+  bgm_fade_out_sec: 1.2
+  sfx_on_transitions: false
   target_lufs: -14
   true_peak_db: -1.0
   sample_rate: 48000

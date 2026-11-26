@@ -80,7 +80,7 @@ def _synth_bgm_numpy(dur_sec: float, out_wav: Path, mood: str, sr: int = 48000) 
     env = np.minimum(local_t / attack, 1.0) * np.minimum((chord_dur - local_t) / release, 1.0)
     env = np.clip(env, 0.0, 1.0)
 
-    pulse_hz = 2.0 if mood in ("playful", "action") else 1.0
+    pulse_hz = 2.0 if mood in ("playful", "action") else 1.98  # ~118-120 BPM lively pulse
     pulse = 0.72 + 0.28 * np.sin(2.0 * np.pi * pulse_hz * t)
 
     for idx, (f1, f2, f3) in enumerate(chords):
@@ -169,7 +169,7 @@ def _fetch_ia_bgm_track(mood: str) -> tuple[Path | None, str]:
         resp = requests.get(
             "https://archive.org/advancedsearch.php",
             params={
-                "q": f"mediatype:audio AND (instrumental OR ambient OR cinematic) AND {mood} AND (licenseurl:cc0 OR licenseurl:creativecommons.org/licenses/by/)",
+                "q": f"mediatype:audio AND (upbeat OR piano OR electronic OR adventure OR cinematic) AND {mood} AND (licenseurl:cc0 OR licenseurl:creativecommons.org/licenses/by/)",
                 "fl[]": "identifier,title,licenseurl",
                 "sort[]": "downloads desc",
                 "rows": 5,
@@ -277,7 +277,7 @@ def mix_audio(
     filter_parts: list[str] = [
         "[0:a]asplit=2[v_sc][v_mix]",
         f"[1:a]highpass=f=80,equalizer=f=1800:t=q:w=1.2:g=-4,volume={bgm_db}dB[bgm_lvl]",
-        "[bgm_lvl][v_sc]sidechaincompress=threshold=0.02:ratio=3.5:attack=15:release=280[bgm_ducked]",
+        "[bgm_lvl][v_sc]sidechaincompress=threshold=0.03:ratio=4:attack=15:release=220[bgm_ducked]",
     ]
     mix_labels = ["[v_mix]", "[bgm_ducked]"]
 

@@ -151,9 +151,32 @@ def generate_captions(
                     whisper_words.append((txt, float(w.start), float(w.end)))
 
     aligned = _align_words_to_script(beats, whisper_words)
-    w_min, w_max = cap_cfg.get("words_per_chunk", [2, 4])
-    max_chars = int(cap_cfg.get("max_chars_per_line", 18))
-    chunks = _chunk_words(aligned, int(w_min), int(w_max), max_chars)
+    caption_mode = str(cap_cfg.get("mode", "single_word"))
+    min_word_ms = int(cap_cfg.get("min_word_display_ms", 110))
+    w_min, w_max = cap_cfg.get("words_per_chunk", [1, 1])
+    max_chars = int(cap_cfg.get("max_chars_per_line", 16))
+
+    if caption_mode == "single_word":
+        merged_single: list[list[tuple[str, float, float]]] = []
+        i = 0
+        while i < len(aligned):
+            w, ws, we = aligned[i]
+            dur_ms = (we - ws) * 1000.0
+            if (
+                dur_ms < min_word_ms
+                and len(w) <= 3
+                and i + 1 < len(aligned)
+                and len(w) + 1 + len(aligned[i + 1][0]) <= max_chars
+            ):
+                nw, _nws, nwe = aligned[i + 1]
+                merged_single.append([(f"{w} {nw}", ws, nwe)])
+                i += 2
+            else:
+                merged_single.append([(w, ws, we)])
+                i += 1
+        chunks = merged_single
+    else:
+        chunks = _chunk_words(aligned, int(w_min), int(w_max), max_chars)
 
     font_name = _resolve_font(
         str(cap_cfg.get("font_name", "Montserrat ExtraBold")),
@@ -190,14 +213,19 @@ def generate_captions(
     )
 
     events: list[str] = []
+    prev_end = 0.0
     for chunk in chunks:
-        c_start = chunk[0][1]
-        c_end = max(c_start + 0.1, chunk[-1][2])
-        k_parts: list[str] = []
-        for word, ws, we in chunk:
-            dur_cs = max(5, int(round((we - ws) * 100)))
-            k_parts.append(f"{{\\k{dur_cs}}}{word.upper()}")
-        text_line = " ".join(k_parts)
+        c_start = max(prev_end, chunk[0][1])
+        c_end = max(c_start + 0.08, chunk[-1][2])
+        prev_end = c_end
+        if caption_mode == "single_word":
+            text_line = " ".join(w.upper() for w, _, _ in chunk)
+        else:
+            k_parts: list[str] = []
+            for word, ws, we in chunk:
+                dur_cs = max(5, int(round((we - ws) * 100)))
+                k_parts.append(f"{{\\k{dur_cs}}}{word.upper()}")
+            text_line = " ".join(k_parts)
         events.append(
             f"Dialogue: 0,{_ass_time(c_start)},{_ass_time(c_end)},Default,,0,0,0,,{text_line}"
         )

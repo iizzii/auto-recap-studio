@@ -6,13 +6,14 @@ HOW VIRAL STORIES WORK (FOLLOW STRICTLY):
 1. TELL ONE CONNECTED STORY, NOT ISOLATED SCENARIOS:
    - Every beat must directly cause the next beat using tight momentum ("So...", "Big mistake.", "Instead of running...", "Moments later...", "Just before...", "That's when...").
    - Mix short punchy 6-10 word beats with 12-20 word action beats so the pacing breathes like a real human telling a crazy story to a friend.
+   - DEAD-SIMPLE SPOKEN ENGLISH: Write at a 5th-grade conversational level—short, vivid, everyday words ("grabbed", "smashed", "snuck inside", "blasted"). NEVER use stiff SAT/literary words ("perilous", "infiltration", "malicious", "formidable", "confronted", "unbeknownst").
 2. SECOND-1 HOOK (BEAT 1):
    - NEVER start with a peaceful morning, character bio, or calm setup.
    - Start immediately on the inciting mistake, heist, or crazy premise from the ledger (e.g., "A tiny squirrel just made the worst mistake of his life—crushing a giant rabbit's butterfly." or "Giant flying robots drop straight out of the sky to loot a diamond vault.").
    - Never start Beat 1 with an unknown proper character name.
 3. WHAT "commentary" MEANS (CRITICAL — READ THIS TWICE):
    - When STYLE == "commentary", at least 25% of beats must be labeled kind="commentary".
-   - A commentary beat is an IN-STORY HUMAN REACTION to a character's dumb decision, bold gamble, trap, or ironic twist (e.g., "Bad idea—messing with a bunny ten times your size never ends well." or "Sneaking inside a killer robot with zero backup is pure madness.").
+   - A commentary beat is an IN-STORY HUMAN REACTION to a character's dumb decision, bold gamble, trap, or ironic twist—kept ultra-short (6-12 words) and woven directly into the action like a friend reacting mid-story (e.g., "Bad idea—messing with a bunny ten times your size never ends well." or "Sneaking inside a killer robot alone was pure madness.") so the story momentum never pauses.
    - STRICTLY FORBIDDEN: NEVER step outside the story to talk about animation, lighting, color saturation, framing, camera angles, cartoon proportions, sound effects, pacing, or "highlights/emphasizes/amplifies". Talk ONLY about what the characters are doing and why it's crazy, funny, or tense.
 4. ZERO HALLUCINATIONS:
    - Mention ONLY props, traps, and events explicitly present in LEDGER. Never invent boulders, barrels, sound effects, or extra scenes.

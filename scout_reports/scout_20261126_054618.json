@@ -1,0 +1,37 @@
+{
+  "run_at": "20261126_054618",
+  "query": "",
+  "license_scope": "cc_only",
+  "candidate_count": 1,
+  "winner_slug": "elephants_dream_06",
+  "candidates": [
+    {
+      "title": "Elephants Dream",
+      "year": 2006,
+      "description": "Two men explore a surreal, endless mechanical world where reality bends.",
+      "subjects": [
+        "sci-fi",
+        "surreal",
+        "animation",
+        "machine"
+      ],
+      "license_key": "cc_by",
+      "license_url": "http://creativecommons.org/licenses/by/3.0/us/",
+      "video_url": "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
+      "srt_url": "",
+      "runtime_min": 10.9,
+      "resolution_height": 576,
+      "downloads": 75000,
+      "source": "catalog",
+      "source_id": "ElephantsDream",
+      "has_trademark": false,
+      "trademark_caution": false,
+      "tech_score": 37,
+      "story_score": 50,
+      "total_score": 87,
+      "pitch_angle": "Mock pitch for Elephants Dream",
+      "verdict": "mock",
+      "rank": 1
+    }
+  ]
+}

@@ -25,6 +25,31 @@
       },
       "created_at": "2026-11-25T20:18:54+00:00",
       "updated_at": "2026-11-25T20:18:54+00:00"
+    },
+    {
+      "slug": "elephants_dream_06",
+      "work_title": "Elephants Dream",
+      "normalized_title": "elephants dream",
+      "source_id": "",
+      "source_url": "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
+      "source_sha256": "fd6dc0e9da3a2f63487957325983f197f23c6ff1cd2b29bb71e64db567e0994c",
+      "status": "rendered",
+      "platforms": {
+        "youtube": {
+          "published": false,
+          "url": null,
+          "published_at": null,
+          "privacy": null
+        },
+        "instagram": {
+          "published": false,
+          "url": null,
+          "published_at": null,
+          "privacy": null
+        }
+      },
+      "created_at": "2026-11-26T05:52:48+00:00",
+      "updated_at": "2026-11-26T05:52:48+00:00"
     }
   ]
 }

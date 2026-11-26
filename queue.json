@@ -13,6 +13,19 @@
       "status": "pending",
       "error": null,
       "completed_on": null
+    },
+    {
+      "slug": "elephants_dream_06",
+      "video_source_url": "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4",
+      "srt_source_url": null,
+      "style": "commentary",
+      "split_part": 0,
+      "max_duration": 175,
+      "publish_target": "artifact_only",
+      "auto_approve": false,
+      "status": "pending",
+      "error": null,
+      "completed_on": null
     }
   ]
 }

@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "project_slug": "elephants_dream_06",
+  "style": "commentary",
+  "part_number": 0,
+  "title": "Trapped Inside A Crazy Metal World #shorts",
+  "banner_text": "TRAPPED IN THE MACHINE",
+  "description": "An old man drags a skeptical friend through a dangerous maze of wires and glowing mechanical vines.",
+  "hashtags": [
+    "#animation",
+    "#scifi",
+    "#shortfilm",
+    "#story"
+  ],
+  "source_title": "Elephants Dream",
+  "attribution_block": "Source: \"Elephants Dream\" by Unknown (2006), CC BY (http://creativecommons.org/licenses/by/3.0/us/). Original: https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4. Narration, selection, editing, and commentary created for this channel. Narration generated with text-to-speech.",
+  "beats": [
+    {
+      "beat_id": 1,
+      "narration": "Walking into a giant metal maze with a crazy old guy is a terrible idea.",
+      "source_window_start_sec": 20.0,
+      "source_window_end_sec": 45.0,
+      "visual_cue": "Prue with a white coat leads Emo through a dark network of cables.",
+      "mood": "hook",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 2,
+      "narration": "Prue guides Emo right through a complex industrial environment filled with hanging wires and cold metal structures.",
+      "source_window_start_sec": 45.0,
+      "source_window_end_sec": 80.0,
+      "visual_cue": "Prue leading Emo across metallic bridges and hanging wires.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 3,
+      "narration": "Big mistake trusting a guy who just walks on thin wire pathways over a massive drop.",
+      "source_window_start_sec": 80.0,
+      "source_window_end_sec": 120.0,
+      "visual_cue": "The characters traverse a vast mechanical lattice of pipes.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 4,
+      "narration": "Prue explains the strange mechanical world to a very skeptical Emo as they march across the pipes.",
+      "source_window_start_sec": 120.0,
+      "source_window_end_sec": 185.0,
+      "visual_cue": "Prue talking to Emo while walking across intricate wire pathways.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 5,
+      "narration": "Instead of listening, Emo stops to stare at dangerous machinery everywhere.",
+      "source_window_start_sec": 185.0,
+      "source_window_end_sec": 240.0,
+      "visual_cue": "Prue and Emo stand on a raised platform surrounded by complex machinery.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 6,
+      "narration": "Prue points out various mechanical hazards while Emo expresses total distrust in the crazy environment.",
+      "source_window_start_sec": 240.0,
+      "source_window_end_sec": 300.0,
+      "visual_cue": "Prue pointing to hazards while Emo looks distrustful.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 7,
+      "narration": "Pure madness to keep walking when the whole place is obviously a trap.",
+      "source_window_start_sec": 300.0,
+      "source_window_end_sec": 350.0,
+      "visual_cue": "Close up on Emo showing distrust on the platform.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 8,
+      "narration": "Moments later, Emo aggressively argues with Prue inside a metallic corridor.",
+      "source_window_start_sec": 350.0,
+      "source_window_end_sec": 400.0,
+      "visual_cue": "Emo confronts Prue inside a metallic corridor with valves on the walls.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 9,
+      "narration": "Emo claims the whole environment is a giant trap and refuses to trust the machine.",
+      "source_window_start_sec": 400.0,
+      "source_window_end_sec": 439.0,
+      "visual_cue": "Emo gesturing angrily at Prue near metal pipes.",
+      "mood": "tense",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 10,
+      "narration": "Stubbornness is going to get them both completely stuck in here forever.",
+      "source_window_start_sec": 439.0,
+      "source_window_end_sec": 470.0,
+      "visual_cue": "Prue listening calmly to Emo inside the corridor.",
+      "mood": "tense",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 11,
+      "narration": "That's when Prue ignores the argument and leads Emo straight into a glowing core chamber.",
+      "source_window_start_sec": 470.0,
+      "source_window_end_sec": 520.0,
+      "visual_cue": "Prue and Emo stepping into a large glowing cavernous space.",
+      "mood": "reveal",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 12,
+      "narration": "Massive mechanical vines and organic tendrils instantly surround them from every single direction.",
+      "source_window_start_sec": 520.0,
+      "source_window_end_sec": 560.0,
+      "visual_cue": "Glowing golden and orange mechanical cables twisting around the characters.",
+      "mood": "action",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 13,
+      "narration": "Worst outcome possible—walking right into the heart of the monster machine.",
+      "source_window_start_sec": 560.0,
+      "source_window_end_sec": 590.0,
+      "visual_cue": "Massive tendrils closing in around Prue and Emo.",
+      "mood": "cliffhanger",
+      "kind": "commentary",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    },
+    {
+      "beat_id": 14,
+      "narration": "They are trapped together as the golden metallic vines lock down the entire cavern.",
+      "source_window_start_sec": 590.0,
+      "source_window_end_sec": 634.18,
+      "visual_cue": "Prue and Emo trapped inside the giant glowing organic mechanical cables.",
+      "mood": "cliffhanger",
+      "kind": "story",
+      "audio_duration_sec": null,
+      "audio_frames": null
+    }
+  ],
+  "shots": []
+}

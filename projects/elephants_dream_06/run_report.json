@@ -1,0 +1,39 @@
+{
+  "slug": "elephants_dream_06",
+  "status": "success",
+  "exit_code": 0,
+  "stages_completed": [
+    "rights_guard",
+    "source_fetcher",
+    "subtitles",
+    "script",
+    "tts",
+    "clip_selector",
+    "captions",
+    "audio_mixer",
+    "video_composer",
+    "qa_gate",
+    "publish"
+  ],
+  "warnings": [
+    "Integrated loudness -99.00 LUFS differs from target -14.0."
+  ],
+  "errors": [],
+  "duration_sec": 390.51,
+  "source_sha256": "fd6dc0e9da3a2f63487957325983f197f23c6ff1cd2b29bb71e64db567e0994c",
+  "output_files": [
+    "/tmp/recap_work/elephants_dream_06/output/final_short.mp4",
+    "/tmp/recap_work/elephants_dream_06/output/metadata.json",
+    "/tmp/recap_work/elephants_dream_06/output/qa_report.json",
+    "/tmp/recap_work/elephants_dream_06/output/thumbnail.jpg"
+  ],
+  "publish_results": {
+    "telegram": {
+      "status": "sent",
+      "video_mb": 34.26,
+      "github_url": "https://github.com/iizzii/auto-recap-studio/actions/runs/45763628132"
+    }
+  },
+  "deinterlace_applied": false,
+  "bgm_mood": null
+}

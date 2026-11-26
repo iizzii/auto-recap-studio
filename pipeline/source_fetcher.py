@@ -55,7 +55,9 @@ def _download_http(url: str, dest: Path, max_gb: float) -> Path:
     max_bytes = int(max_gb * (1024**3))
     for attempt in range(4):
         existing_size = dest.stat().st_size if dest.exists() else 0
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {
+            "User-Agent": "auto-recap-studio/1.0 (https://github.com/local/auto-recap-studio)"
+        }
         if existing_size > 0:
             headers["Range"] = f"bytes={existing_size}-"
 

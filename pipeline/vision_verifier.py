@@ -196,7 +196,7 @@ def verify_final_story_sync(
         )
         img = Image.open(sheet_path)
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=[prompt, img],
         )
         data = json.loads(_strip_json_fences(resp.text or "{}"))

@@ -265,7 +265,7 @@ def _llm_story_scores(candidates: list[dict[str, Any]], gemini_api_key: str) -> 
             indent=2,
         )
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=f"{system_prompt}\n\nCANDIDATES:\n{payload}",
         )
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", (resp.text or "").strip())

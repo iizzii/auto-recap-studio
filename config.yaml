@@ -40,7 +40,7 @@ llm:
 
 script:
   style: commentary
-  min_words: 220
+  min_words: 150
   max_words: 380
   min_beats: 12
   max_beats: 24

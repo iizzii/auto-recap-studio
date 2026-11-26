@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline import audio_mixer, caption_engine, video_composer
-from pipeline.models import Beat, ProjectManifest, Shot
+from pipeline.models import Beat, Shot
 
 
 def test_banner_off_and_on_video_composer(tmp_path: Path) -> None:

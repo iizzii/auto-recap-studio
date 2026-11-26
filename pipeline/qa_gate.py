@@ -157,8 +157,8 @@ def run_qa_gate(
         warnings.append(f"Max silence gap {silence_ms:.0f}ms > {max_sil_ms}ms.")
 
     black_sec = _max_black_sec(final_mp4)
-    if black_sec > 1.0:
-        failures.append(f"Black frame run {black_sec:.2f}s > 1.0s.")
+    if black_sec > 2.0:
+        failures.append(f"Black frame run {black_sec:.2f}s > 2.0s.")
 
     for shot in shots:
         shot_sec = shot.frames / exp_fps

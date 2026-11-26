@@ -218,8 +218,19 @@ def _pick_or_synth_bgm(
             for track in data.get("tracks", []):
                 if track.get("mood") and track.get("mood") != mood:
                     continue
-                t_path = Path(track.get("path", ""))
-                if t_path.exists():
+                t_raw = str(track.get("path", "")).strip()
+                t_path = Path(t_raw) if t_raw else None
+                if (t_path is None or not t_path.is_file()) and track.get("url") and allow_network:
+                    url = str(track["url"])
+                    cache_dir = _BGM_CACHE_DIR / mood
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    dest = cache_dir / Path(url.split("?")[0]).name
+                    if not dest.is_file():
+                        r = requests.get(url, timeout=30)
+                        r.raise_for_status()
+                        dest.write_bytes(r.content)
+                    t_path = dest
+                if t_path is not None and t_path.is_file():
                     looped = work_dir / "bgm_looped.wav"
                     ffutil.run(
                         [

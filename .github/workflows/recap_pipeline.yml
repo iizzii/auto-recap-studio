@@ -73,7 +73,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: recap-${{ inputs.slug }}
+      group: recap-${{ inputs.slug }}-${{ inputs.split_part }}
       cancel-in-progress: false
 
     steps:
@@ -99,7 +99,7 @@ jobs:
             echo "Invalid slug: must match ^[a-z0-9_]{3,40}$" >&2
             exit 2
           fi
-          if [[ ! "$IN_SPLIT" =~ ^[012]$ ]]; then
+          if [[ ! "$IN_SPLIT" =~ ^[0-9]+$ ]]; then
             echo "Invalid split_part: must be 0, 1, or 2" >&2
             exit 2
           fi

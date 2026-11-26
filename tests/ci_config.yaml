@@ -12,6 +12,7 @@ source:
 layout:
   auto_deinterlace: false
   overscan_trim_pct: 0.0
+  auto_full_bleed_max_aspect: 0.0
   banner:
     enabled: false
 

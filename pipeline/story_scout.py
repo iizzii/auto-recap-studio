@@ -334,10 +334,261 @@ def validate_candidate(
 
 # ── Main scout function ───────────────────────────────────────────────────────
 
+_DEFAULT_UA = "auto-recap-studio/1.0 (https://github.com/local/auto-recap-studio)"
+_SKIP_TEASER_WORDS = (
+    "teaser", "trailer", "log", "making of", "behind the scenes",
+    "breakdown", "livestream", "production",
+)
+
+
+def _pick_peertube_mp4(detail: dict[str, Any], max_h: int = 1080) -> tuple[str, int]:
+    """Pick the highest-res <= 1080p progressive MP4 from PeerTube files or streamingPlaylists."""
+    pool = list(detail.get("files", []))
+    for pl in detail.get("streamingPlaylists", []) or []:
+        pool.extend(pl.get("files", []) or [])
+    best_url = ""
+    best_h = 0
+    for f in pool:
+        url = str(f.get("fileDownloadUrl") or f.get("fileUrl") or "")
+        if not url:
+            continue
+        res = f.get("resolution") or {}
+        h = int(res.get("id") or 0)
+        if h <= max_h and h >= best_h:
+            best_h = h
+            best_url = url
+    return best_url, best_h
+
+
+def _fetch_blender_peertube(
+    min_dur_sec: float = 150.0,
+    max_dur_sec: float = 1500.0,
+    user_agent: str = _DEFAULT_UA,
+) -> list[dict[str, Any]]:
+    """Provider 1: Blender Studio PeerTube channel (1080p/4K CC-BY)."""
+    headers = {"User-Agent": user_agent}
+    out: list[dict[str, Any]] = []
+    try:
+        r = requests.get(
+            "https://video.blender.org/api/v1/video-channels/blender_open_movies/videos",
+            params={"count": 30, "sort": "-publishedAt"},
+            headers=headers,
+            timeout=15,
+        )
+        r.raise_for_status()
+        for v in r.json().get("data", []):
+            title = str(v.get("name", ""))
+            dur = float(v.get("duration", 0))
+            if dur < min_dur_sec or dur > max_dur_sec:
+                continue
+            if any(w in title.lower() for w in _SKIP_TEASER_WORDS):
+                continue
+            uuid = str(v.get("uuid", ""))
+            if not uuid:
+                continue
+            det = requests.get(
+                f"https://video.blender.org/api/v1/videos/{uuid}",
+                headers=headers,
+                timeout=15,
+            ).json()
+            mp4_url, res_h = _pick_peertube_mp4(det)
+            if not mp4_url:
+                continue
+            srt_url = ""
+            try:
+                caps = requests.get(
+                    f"https://video.blender.org/api/v1/videos/{uuid}/captions",
+                    headers=headers,
+                    timeout=10,
+                ).json()
+                for c in caps.get("data", []):
+                    if (c.get("language") or {}).get("id") == "en" and c.get("captionPath"):
+                        srt_url = f"https://video.blender.org{c['captionPath']}"
+                        break
+            except Exception:
+                pass
+            out.append({
+                "title": title,
+                "year": None,
+                "creator": "Blender Studio",
+                "description": str(det.get("description") or v.get("description") or "")[:500],
+                "subjects": ["animation", "blender", "3d"],
+                "license_key": "cc_by",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "source_page_url": f"https://video.blender.org/w/{uuid}",
+                "attribution_text": f'"{title}" by Blender Studio (video.blender.org), CC BY 4.0',
+                "video_url": mp4_url,
+                "srt_url": srt_url,
+                "runtime_min": round(dur / 60.0, 2),
+                "resolution_height": res_h or 1080,
+                "downloads": int(v.get("views", 0)),
+                "source": "blender_peertube",
+                "source_id": f"blender_{uuid[:12]}",
+                "has_trademark": False,
+            })
+    except Exception as exc:
+        log.warning("blender_peertube fetch error: %s", exc)
+    return out
+
+
+def _fetch_wikimedia_commons(
+    min_dur_sec: float = 150.0,
+    max_dur_sec: float = 1500.0,
+    min_width: int = 720,
+    user_agent: str = _DEFAULT_UA,
+) -> list[dict[str, Any]]:
+    """Provider 2: Wikimedia Commons HD CC-BY/CC0/PD animated shorts."""
+    headers = {"User-Agent": user_agent}
+    out: list[dict[str, Any]] = []
+    for cat in ("Category:Videos_of_3D_animated_short_films", "Category:Animated_short_films"):
+        try:
+            r = requests.get(
+                "https://commons.wikimedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "generator": "categorymembers",
+                    "gcmtitle": cat,
+                    "gcmtype": "file",
+                    "gcmlimit": 30,
+                    "prop": "videoinfo",
+                    "viprop": "url|size|mime|extmetadata",
+                    "format": "json",
+                },
+                headers=headers,
+                timeout=15,
+            )
+            r.raise_for_status()
+            pages = (r.json().get("query") or {}).get("pages") or {}
+            for p in pages.values():
+                vi_list = p.get("videoinfo") or []
+                if not vi_list:
+                    continue
+                vi = vi_list[0]
+                mime = str(vi.get("mime", ""))
+                if not mime.startswith("video/"):
+                    continue
+                dur = float(vi.get("duration") or 0)
+                w = int(vi.get("width") or 0)
+                h = int(vi.get("height") or 0)
+                size = int(vi.get("size") or 0)
+                if not (min_dur_sec <= dur <= max_dur_sec) or w < min_width or size > 3_500_000_000:
+                    continue
+                meta = vi.get("extmetadata") or {}
+                lic_short = str((meta.get("LicenseShortName") or {}).get("value", "")).lower()
+                lic_url = str((meta.get("LicenseUrl") or {}).get("value", ""))
+                if "nc" in lic_short or "nd" in lic_short or "nc" in lic_url.lower() or "nd" in lic_url.lower():
+                    continue
+                if "cc0" in lic_short:
+                    lic_key = "cc0"
+                elif "cc by-sa" in lic_short:
+                    lic_key = "cc_by_sa"
+                elif "cc by" in lic_short:
+                    lic_key = "cc_by"
+                elif "public domain" in lic_short:
+                    lic_key = "public_domain"
+                else:
+                    continue
+                title = str(p.get("title", "")).replace("File:", "").rsplit(".", 1)[0]
+                artist = re.sub(r"<[^>]+>", "", str((meta.get("Artist") or {}).get("value", "Unknown"))).strip()
+                desc = re.sub(r"<[^>]+>", "", str((meta.get("ImageDescription") or {}).get("value", ""))).strip()
+                out.append({
+                    "title": title,
+                    "year": None,
+                    "creator": artist or "Wikimedia Commons",
+                    "description": desc[:500],
+                    "subjects": ["animation", "wikimedia"],
+                    "license_key": lic_key,
+                    "license_url": lic_url or "https://creativecommons.org/licenses/by/4.0/",
+                    "source_page_url": str(vi.get("descriptionurl") or vi.get("url") or ""),
+                    "attribution_text": f'"{title}" by {artist}, {lic_short.upper()}',
+                    "video_url": str(vi.get("url", "")),
+                    "srt_url": "",
+                    "runtime_min": round(dur / 60.0, 2),
+                    "resolution_height": h or 720,
+                    "downloads": 10000,
+                    "source": "wikimedia_commons",
+                    "source_id": f"wm_{p.get('pageid', '')}",
+                    "has_trademark": _has_trademark(title, desc),
+                })
+        except Exception as exc:
+            log.warning("wikimedia_commons fetch error (%s): %s", cat, exc)
+    return out
+
+
+def _fetch_sepiasearch(
+    query: str = "",
+    min_dur_sec: float = 150.0,
+    max_dur_sec: float = 1500.0,
+    user_agent: str = _DEFAULT_UA,
+) -> list[dict[str, Any]]:
+    """Provider 3: Sepia Search federated PeerTube indie animations."""
+    headers = {"User-Agent": user_agent}
+    out: list[dict[str, Any]] = []
+    try:
+        r = requests.get(
+            "https://sepiasearch.org/api/v1/search/videos",
+            params={
+                "search": query.strip() or "animated short film",
+                "licenceOneOf": [1, 2, 7],
+                "durationMin": int(min_dur_sec),
+                "durationMax": int(max_dur_sec),
+                "nsfw": "false",
+                "count": 20,
+            },
+            headers=headers,
+            timeout=15,
+        )
+        r.raise_for_status()
+        for v in r.json().get("data", []):
+            lic_id = (v.get("licence") or {}).get("id")
+            if lic_id not in {1, 2, 7}:
+                continue
+            lic_key = {1: "cc_by", 2: "cc_by_sa", 7: "cc0"}[lic_id]
+            host = ((v.get("account") or {}).get("host") or "").strip()
+            uuid = str(v.get("uuid", ""))
+            if not host or not uuid:
+                continue
+            try:
+                det = requests.get(
+                    f"https://{host}/api/v1/videos/{uuid}",
+                    headers=headers,
+                    timeout=10,
+                ).json()
+            except Exception:
+                continue
+            mp4_url, res_h = _pick_peertube_mp4(det)
+            if not mp4_url:
+                continue
+            title = str(v.get("name", ""))
+            out.append({
+                "title": title,
+                "year": None,
+                "creator": str((v.get("account") or {}).get("displayName") or host),
+                "description": str(det.get("description") or v.get("description") or "")[:500],
+                "subjects": ["animation", "peertube"],
+                "license_key": lic_key,
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "source_page_url": str(v.get("url") or f"https://{host}/w/{uuid}"),
+                "attribution_text": f'"{title}" ({host}), {lic_key.upper()}',
+                "video_url": mp4_url,
+                "srt_url": "",
+                "runtime_min": round(float(v.get("duration", 0)) / 60.0, 2),
+                "resolution_height": res_h or 720,
+                "downloads": int(v.get("views", 0)),
+                "source": "sepiasearch",
+                "source_id": f"sepia_{uuid[:12]}",
+                "has_trademark": _has_trademark(title, str(v.get("description", ""))),
+            })
+    except Exception as exc:
+        log.warning("sepiasearch fetch error: %s", exc)
+    return out
+
+
 def run_scout(
     query: str = "",
     candidate_count: int = 3,
     license_scope: str = "cc_only",
+    providers: list[str] | None = None,
     mock_llm: bool = False,
     mock_http: bool = False,
     gemini_api_key: str = "",
@@ -372,51 +623,58 @@ def run_scout(
                 "has_trademark": _has_trademark(item.get("title", ""), item.get("description", "")),
             })
 
-    # Source 2: Internet Archive (live only)
+    # Source 2: HD CC-BY Providers (live only)
+    active_providers = providers or ["blender_peertube", "wikimedia_commons", "sepiasearch"]
     if not mock_http:
-        ia_query = query or "animation cartoon open license"
-        ia_results = _ia_search(ia_query, rows=30)
-        for doc in ia_results:
-            item_id = doc.get("identifier", "")
-            if not item_id:
-                continue
-            meta = _ia_metadata(item_id)
-            files = meta.get("files", [])
-            video_url, srt_url = _pick_best_video_and_srt(files, item_id)
-            if not video_url:
-                continue
-            license_url = str(doc.get("licenseurl", ""))
-            license_key = classify_license_url(license_url)
-            # Estimate runtime from metadata
-            runtime_min = 0.0
-            for f in files:
-                if str(f.get("name", "")).lower().endswith(".mp4"):
-                    try:
-                        runtime_min = float(f.get("length", 0)) / 60.0
-                        break
-                    except (TypeError, ValueError):
-                        pass
-            subjects = doc.get("subject", [])
-            if isinstance(subjects, str):
-                subjects = [subjects]
-            title = str(doc.get("title", item_id))
-            year = doc.get("year")
-            candidates_raw.append({
-                "title": title,
-                "year": year,
-                "description": str(doc.get("description", ""))[:500],
-                "subjects": subjects,
-                "license_key": license_key,
-                "license_url": license_url,
-                "video_url": video_url,
-                "srt_url": srt_url,
-                "runtime_min": runtime_min,
-                "resolution_height": 480,  # unknown without probing
-                "downloads": int(doc.get("downloads", 0)),
-                "source": "internet_archive",
-                "source_id": item_id,
-                "has_trademark": _has_trademark(title, str(doc.get("description", ""))),
-            })
+        if "blender_peertube" in active_providers:
+            candidates_raw.extend(_fetch_blender_peertube())
+        if "wikimedia_commons" in active_providers:
+            candidates_raw.extend(_fetch_wikimedia_commons())
+        if "sepiasearch" in active_providers:
+            candidates_raw.extend(_fetch_sepiasearch(query=query))
+        if "archive_org" in active_providers:
+            ia_query = query or "animation cartoon open license"
+            ia_results = _ia_search(ia_query, rows=15)
+            for doc in ia_results:
+                item_id = doc.get("identifier", "")
+                if not item_id:
+                    continue
+                meta = _ia_metadata(item_id)
+                files = meta.get("files", [])
+                video_url, srt_url = _pick_best_video_and_srt(files, item_id)
+                if not video_url:
+                    continue
+                license_url = str(doc.get("licenseurl", ""))
+                license_key = classify_license_url(license_url)
+                runtime_min = 0.0
+                for f in files:
+                    if str(f.get("name", "")).lower().endswith(".mp4"):
+                        try:
+                            runtime_min = float(f.get("length", 0)) / 60.0
+                            break
+                        except (TypeError, ValueError):
+                            pass
+                subjects = doc.get("subject", [])
+                if isinstance(subjects, str):
+                    subjects = [subjects]
+                title = str(doc.get("title", item_id))
+                year = doc.get("year")
+                candidates_raw.append({
+                    "title": title,
+                    "year": year,
+                    "description": str(doc.get("description", ""))[:500],
+                    "subjects": subjects,
+                    "license_key": license_key,
+                    "license_url": license_url,
+                    "video_url": video_url,
+                    "srt_url": srt_url,
+                    "runtime_min": runtime_min,
+                    "resolution_height": 480,
+                    "downloads": int(doc.get("downloads", 0)),
+                    "source": "internet_archive",
+                    "source_id": item_id,
+                    "has_trademark": _has_trademark(title, str(doc.get("description", ""))),
+                })
 
     # Validate and collect up to candidate_count
     validated: list[dict[str, Any]] = []

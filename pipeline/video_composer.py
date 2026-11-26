@@ -185,13 +185,31 @@ def _render_single_shot(
         )
     pre_prefix = ",".join(pre_filters) + "," if pre_filters else ""
 
-    fc_parts = [
-        f"[0:v]{pre_prefix}setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,split=2[bg_in][fg_in]",
-        f"[bg_in]scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},{bg_blur},eq=brightness={bg_bright}:saturation={bg_sat}[bg]",
-        f"[fg_in]{fg_chain}[fg]",
-        "[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]",
-    ]
+    p_crop = overscan_trim_pct / 100.0 if overscan_trim_pct > 0 else 0.0
+    cw = max(2.0, src_dims[0] * (1.0 - 2.0 * p_crop))
+    ch = max(2.0, src_dims[1] * (1.0 - 2.0 * p_crop))
+    post_crop_aspect = cw / ch
+    full_bleed_max = float(layout.get("auto_full_bleed_max_aspect", 1.45))
+
+    if full_bleed_max > 0 and post_crop_aspect <= full_bleed_max:
+        grade_chain = ""
+        if grade.get("enabled", True):
+            eq_str = str(grade.get("eq", "contrast=1.08:saturation=1.22:brightness=0.02"))
+            unsharp_str = str(grade.get("unsharp", "5:5:0.7:5:5:0.0"))
+            grade_chain = f",eq={eq_str},unsharp={unsharp_str}"
+        fc_parts = [
+            f"[0:v]{pre_prefix}setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,"
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height}{grade_chain}[comp]",
+        ]
+    else:
+        fc_parts = [
+            f"[0:v]{pre_prefix}setpts={pts_expr},fps={fps},tpad=stop_mode=clone:stop_duration=2,split=2[bg_in][fg_in]",
+            f"[bg_in]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},{bg_blur},eq=brightness={bg_bright}:saturation={bg_sat}[bg]",
+            f"[fg_in]{fg_chain}[fg]",
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]",
+        ]
 
     cmd = [
         "ffmpeg",

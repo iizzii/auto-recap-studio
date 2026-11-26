@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import logging
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,8 @@ def _align_words_to_script(
     t_cursor = 0.0
     for beat in beats:
         dur = beat.audio_duration_sec or 1.0
-        words = beat.narration.split()
+        clean_nar = re.sub(r"[—–/]+", " ", beat.narration)
+        words = [w.strip("—–- ") for w in clean_nar.split() if w.strip("—–- ")]
         step = dur / max(1, len(words))
         for i, w in enumerate(words):
             script_tokens.append((w, t_cursor + i * step, t_cursor + (i + 1) * step))
@@ -219,7 +221,9 @@ def generate_captions(
         c_end = max(c_start + 0.08, chunk[-1][2])
         prev_end = c_end
         if caption_mode == "single_word":
-            text_line = " ".join(w.upper() for w, _, _ in chunk)
+            text_line = " ".join(w.strip("—–- ").upper() for w, _, _ in chunk if w.strip("—–- "))
+            if not text_line:
+                continue
         else:
             k_parts: list[str] = []
             for word, ws, we in chunk:

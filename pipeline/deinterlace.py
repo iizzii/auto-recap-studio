@@ -103,15 +103,18 @@ def detect_end_credits_start(
                 continue
             small = cv2.resize(frame, (160, 90))
             gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            dark_pct = float(np.mean(gray < 25))
-            if dark_pct >= 0.75:
-                # This frame looks like dark credits
+            hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+            dark_ratio_25 = float(np.mean(gray < 25))
+            dark_ratio_35 = float(np.mean(gray < 35))
+            mean_sat = float(np.mean(hsv[:, :, 1]))
+            is_credit_frame = (dark_ratio_25 >= 0.75) or (dark_ratio_35 >= 0.60 and mean_sat < 20.0)
+            if is_credit_frame:
                 consecutive_non_credit = 0
                 t -= step_sec
             else:
                 consecutive_non_credit += 1
                 if consecutive_non_credit >= 2:
-                    end_t = t + 2.0 * step_sec - 2.0
+                    end_t = t + 2.0 * step_sec - 3.0
                     log.info("detect_end_credits_start: credits start ~%.1fs (%.1f%% from end)", end_t, (duration_sec - end_t) / duration_sec * 100)
                     return max(end_t, duration_sec * 0.5)
                 t -= step_sec

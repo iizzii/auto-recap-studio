@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/vision_verifier.py
+# hypothesis_version: 6.141.1
+
+[0.5, 5.0, 7.0, 7.5, 8.0, 8.5, 9.0, 1000.0, 120, 180, 230, 255, 320, 1280, 60000, '404', 'A', 'GEMINI_API_KEY', 'JPEG', 'Mock vision match', 'NOT_FOUND', 'RGB', 'application/json', 'avg_score', 'batch_beats_per_call', 'beat_id', 'beats', 'candidates', 'contact_sheet_max_px', 'frames', 'gemini-3.5-flash', 'gemini-3.8-flash', 'hook_score', 'id', 'image/jpeg', 'llm', 'matches_cue', 'mismatched_beats', 'model', 'note', 'problems', 'prompts', 'rate_limit_sleep_sec', 'score', 'utf-8', 'vision', '{}']

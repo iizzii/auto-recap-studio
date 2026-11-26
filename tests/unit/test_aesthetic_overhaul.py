@@ -36,7 +36,7 @@ def test_banner_off_and_on_video_composer(tmp_path: Path) -> None:
     captured_cmds: list[list[str]] = []
     with patch("pipeline.ffutil.run", side_effect=lambda cmd: captured_cmds.append(cmd)):
         video_composer._render_single_shot(
-            shot, Path("src.mp4"), None, out_mp4, cfg_off, src_dims=(640, 480), deinterlace_applied=True
+            shot, Path("src.mp4"), None, out_mp4, cfg_off, src_dims=(1920, 1080), deinterlace_applied=True
         )
     cmd_str = " ".join(captured_cmds[0])
     assert "bwdif=mode=0:parity=-1:deint=0" in cmd_str

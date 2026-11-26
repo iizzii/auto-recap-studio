@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/caption_engine.py
+# hypothesis_version: 6.141.1
+
+[0.0, 0.05, 0.08, 0.1, 1.0, 1000.0, 100, 110, 420, 3600, '#', '#FFE600', '#FFFFFF', '&H00FFFFFF', '.,!?;:"\'', '05_captions.ass', 'DejaVu Sans Bold', 'Montserrat ExtraBold', '[—–/]+', 'accent_rotation', 'alignment', 'base.en', 'captions', 'compute_type', 'cpu', 'cpu_threads', 'device', 'equal', 'fc-list', 'font_fallback', 'font_name', 'font_size', 'inactive_color', 'int8', 'margin_v', 'max_chars_per_line', 'min_word_display_ms', 'mode', 'model', 'outline_px', 'replace', 'shadow_px', 'single_word', 'utf-8', 'words', 'words_per_chunk', '—–- ']

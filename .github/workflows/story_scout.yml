@@ -21,6 +21,11 @@ on:
         options:
           - cc_only
           - cc_and_pd
+      providers:
+        description: "Comma-separated HD providers"
+        required: false
+        type: string
+        default: "blender_peertube,wikimedia_commons,sepiasearch"
       auto_produce_winner:
         description: "Automatically render #1 winner if CC0/CC-BY"
         required: false
@@ -77,6 +82,7 @@ jobs:
           INPUT_SCOPE: ${{ inputs.license_scope }}
           INPUT_AUTO: ${{ inputs.auto_produce_winner }}
           INPUT_PUBLISH: ${{ inputs.publish_target }}
+          INPUT_PROVIDERS: ${{ inputs.providers }}
         run: |
           AUTO_FLAG=""
           if [ "$INPUT_AUTO" = "true" ]; then
@@ -86,6 +92,7 @@ jobs:
             --query "$INPUT_QUERY" \
             --candidate-count "$INPUT_COUNT" \
             --license-scope "$INPUT_SCOPE" \
+            --providers "$INPUT_PROVIDERS" \
             --publish-target "$INPUT_PUBLISH" \
             $AUTO_FLAG
 

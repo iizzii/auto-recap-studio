@@ -18,7 +18,7 @@ source:
   exclude_head_sec: 20
   exclude_tail_pct: 3
   auto_detect_end_credits: true
-  max_auto_credit_tail_pct: 20
+  max_auto_credit_tail_pct: 30
   auto_transcribe_source: true
   whisper_model_fallback: small.en
   subtitle_language: en
@@ -99,6 +99,7 @@ layout:
   combing_threshold: 1.12
   vintage_deinterlace_year: 1985
   overscan_trim_pct: 3.0
+  auto_full_bleed_max_aspect: 1.45
   banner:
     enabled: false
     y: 200
@@ -166,3 +167,11 @@ qa:
   min_hook_match_score: 7.0
   require_ending_reach_pct: 0.80
   fail_on_warnings: false
+
+scout:
+  default_providers: ["blender_peertube", "wikimedia_commons", "sepiasearch"]
+  min_duration_sec: 150
+  max_duration_sec: 1500
+  min_width_px: 720
+  preferred_width_px: 1280
+  user_agent: "auto-recap-studio/1.0 (https://github.com/local/auto-recap-studio)"

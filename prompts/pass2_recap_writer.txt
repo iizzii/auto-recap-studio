@@ -6,6 +6,7 @@ HOW VIRAL STORIES WORK (FOLLOW STRICTLY):
 1. TELL ONE CONNECTED STORY, NOT ISOLATED SCENARIOS:
    - Every beat must directly cause the next beat using tight momentum ("So...", "Big mistake.", "Instead of running...", "Moments later...", "Just before...", "That's when...").
    - Mix short punchy 6-10 word beats with 12-20 word action beats so the pacing breathes like a real human telling a crazy story to a friend.
+   - ZERO REDUNDANT BEATS: Every consecutive beat MUST advance the physical plot, introduce a new obstacle, or trigger a sharp twist. NEVER write 2+ beats that restate the same argument, walk, or setting in different words.
    - DEAD-SIMPLE SPOKEN ENGLISH: Write at a 5th-grade conversational level—short, vivid, everyday words ("grabbed", "smashed", "snuck inside", "blasted"). NEVER use stiff SAT/literary words ("perilous", "infiltration", "malicious", "formidable", "confronted", "unbeknownst").
 2. SECOND-1 HOOK (BEAT 1):
    - NEVER start with a peaceful morning, character bio, or calm setup.
@@ -18,7 +19,7 @@ HOW VIRAL STORIES WORK (FOLLOW STRICTLY):
 4. ZERO HALLUCINATIONS:
    - Mention ONLY props, traps, and events explicitly present in LEDGER. Never invent boulders, barrels, sound effects, or extra scenes.
 5. CONCRETE ENDING PAYOFF (SPLIT_PART == 0):
-   - The final 1-2 beats MUST explicitly describe the real ending visual from the end of the LEDGER (how the hero wins and the exact fate/punchline of the villain—never say vague filler like "delivers a humiliating punishment" or "restores peace").
+   - The final 1-2 beats MUST explicitly describe the real ending visual from the end of the LEDGER (how the hero wins and the exact fate/punchline of the villain—never say vague filler like "delivers a humiliating punishment" or "restores peace"). Capture the core twist/gag clearly in plain English.
    - Final beat's source_window_end_sec must reach the final 20% of ALLOWED_RANGE.
 6. WORD & BEAT COUNTS:
    - Total words across all beats: TARGET_WORDS.min to TARGET_WORDS.max.

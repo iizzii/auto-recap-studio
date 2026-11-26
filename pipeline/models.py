@@ -84,7 +84,7 @@ class ProjectManifest(BaseModel):
     schema_version: int = 1
     project_slug: str = Field(pattern=r"^[a-z0-9_]{3,40}$")
     style: Literal["commentary", "recap"]
-    part_number: int = Field(ge=0, le=2)
+    part_number: int = Field(ge=0, le=10)
     title: str = Field(max_length=75)
     banner_text: str
     description: str
@@ -146,7 +146,7 @@ class QueueItem(BaseModel):
     video_source_url: str
     srt_source_url: Optional[str] = None
     style: Literal["commentary", "recap"] = "commentary"
-    split_part: int = Field(ge=0, le=2, default=0)
+    split_part: int = Field(ge=0, le=10, default=0)
     max_duration: int = 175
     publish_target: str = "all_private"
     auto_approve: bool = False

@@ -34,10 +34,15 @@ on:
           - commentary
           - recap
       split_part:
-        description: "0=full, 1=part1, 2=part2"
+        description: "0=full, 1..N=part N"
         required: true
         type: string
         default: "0"
+      total_parts:
+        description: "Total parts when split_part > 0 (e.g. 5)"
+        required: false
+        type: string
+        default: "2"
       max_duration:
         description: "Max duration in seconds (e.g. 175 for Shorts, 88 for Reels)"
         required: true
@@ -87,6 +92,7 @@ jobs:
           IN_MODE: ${{ inputs.mode }}
           IN_STYLE: ${{ inputs.style }}
           IN_SPLIT: ${{ inputs.split_part }}
+          IN_TOTAL_PARTS: ${{ inputs.total_parts }}
           IN_MAX_DUR: ${{ inputs.max_duration }}
         run: |
           if [[ ! "$IN_SLUG" =~ ^[a-z0-9_]{3,40}$ ]]; then
@@ -142,6 +148,7 @@ jobs:
           IN_MODE: ${{ inputs.mode }}
           IN_STYLE: ${{ inputs.style }}
           IN_SPLIT: ${{ inputs.split_part }}
+          IN_TOTAL_PARTS: ${{ inputs.total_parts }}
           IN_MAX_DUR: ${{ inputs.max_duration }}
           IN_TARGET: ${{ inputs.publish_target }}
           IN_FORCE: ${{ inputs.force_regenerate }}
@@ -167,6 +174,7 @@ jobs:
             --mode "$IN_MODE"
             --style "$IN_STYLE"
             --split-part "$IN_SPLIT"
+            --total-parts "$IN_TOTAL_PARTS"
             --max-duration "$IN_MAX_DUR"
             --publish-target "$IN_TARGET"
           )

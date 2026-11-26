@@ -110,7 +110,8 @@ def run(
     mock_tts: bool = typer.Option(False, "--mock-tts", help="Use mock TTS audio."),
     mock_vision: bool = typer.Option(False, "--mock-vision", help="Use mock vision scoring."),
     force: bool = typer.Option(False, "--force", help="Regenerate existing script manifest."),
-    split_part: int = typer.Option(0, "--split-part", help="0=full, 1=part1, 2=part2."),
+    split_part: int = typer.Option(0, "--split-part", help="0=full, 1..N=part N."),
+    total_parts: int = typer.Option(2, "--total-parts", help="Total parts when split_part > 0."),
     max_duration: Optional[int] = typer.Option(None, "--max-duration", help="Max duration sec."),
     allow_reproduce: bool = typer.Option(False, "--allow-reproduce", help="Allow re-producing published story."),
 ) -> None:
@@ -161,7 +162,13 @@ def run(
     allowed_start = min(allowed_start, max(0.0, src_dur - 10.0))
     tail_pct = float(src_cfg.get("exclude_tail_pct", 8))
     allowed_end = max(allowed_start + 5.0, src_dur * (1.0 - tail_pct / 100.0))
-    allowed_range = (allowed_start, allowed_end)
+    if split_part > 0 and total_parts > 1:
+        part_span = (allowed_end - allowed_start) / total_parts
+        part_start = allowed_start + (split_part - 1) * part_span
+        part_end = allowed_start + split_part * part_span
+        allowed_range = (part_start, max(part_start + 5.0, part_end))
+    else:
+        allowed_range = (allowed_start, allowed_end)
 
     srt_path = transcriber.resolve_subtitles(source_path, srt_source, work_dir, cfg, budget)
     segments = srt_parser.merge_segments(srt_parser.parse_srt(srt_path))

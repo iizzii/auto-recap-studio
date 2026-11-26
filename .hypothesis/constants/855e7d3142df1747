@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/srt_parser.py
+# hypothesis_version: 6.141.1
+
+[0.0, 1e-06, 1.3, 60.0, 1000.0, 200, 500, 2500, 3600, ',', '.', ':', '<[^>]+>', '\\[[^\\]]*\\]|\\([^)]*\\)', '\\s+', 'end', 'replace', 'start', 'text', 'utf-8']

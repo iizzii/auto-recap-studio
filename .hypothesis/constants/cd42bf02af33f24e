@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/ffutil.py
+# hypothesis_version: 6.141.1
+
+[600, '-count_packets', '-print_format', '-select_streams', '-show_entries', '-show_format', '-show_streams', '-v', 'FFmpeg failed:\n', 'audio', 'codec_type', 'duration', 'ffprobe', 'format', 'json', 'nb_frames', 'nb_read_packets', 'quiet', 'streams', 'v:0', 'video']

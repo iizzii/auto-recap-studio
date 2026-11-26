@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/timeline.py
+# hypothesis_version: 6.141.1
+
+[2.0, 2.8, 4.0, 4.5, 'fps', 'hard_max_shot_sec', 'max_shot_sec', 'min_shot_sec', 'runtime', 'shots', 'target_shot_sec']

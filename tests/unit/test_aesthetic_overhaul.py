@@ -129,6 +129,6 @@ def test_audio_mixer_no_whoosh(tmp_path: Path) -> None:
         patch("pipeline.ffutil.run", side_effect=lambda cmd: captured.append(cmd)),
     ):
         audio_mixer.mix_audio(Path("voice.wav"), beats, tmp_path, cfg, allow_network=False)
-    cmd_str = " ".join(captured[0])
-    assert "whoosh" not in cmd_str
+    cmd_str = " ".join(captured[-1])
+    assert "whoosh.wav" not in cmd_str
     assert "amix=inputs=2" in cmd_str

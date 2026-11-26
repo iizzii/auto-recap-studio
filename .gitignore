@@ -37,3 +37,15 @@ Thumbs.db
 assets/fonts/*.ttf
 assets/fonts/*.otf
 !assets/fonts/.gitkeep
+
+.env
+.venv/
+.local_cache/
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.wav
+*.mp3
+*.flac
+*.m4a

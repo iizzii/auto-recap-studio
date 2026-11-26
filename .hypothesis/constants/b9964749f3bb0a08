@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/deinterlace.py
+# hypothesis_version: 6.141.1
+
+[0.0, 1e-06, 0.5, 0.75, 1.0, 1.35, 2.0, 3.0, 4.0, 20.0, 100.0, 1000.0, 100, 160, ',', 'bb', 'bt', 'codec_type', 'field_order', 'layout', 'overscan_trim_pct', 'progressive', 'streams', 'tb', 'tt', 'video']

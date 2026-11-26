@@ -12,9 +12,18 @@ source:
 layout:
   auto_deinterlace: false
   overscan_trim_pct: 0.0
+  banner:
+    enabled: false
 
 shots:
+  min_shot_sec: 1.4
+  max_shot_sec: 3.0
+  hard_max_shot_sec: 3.5
+  target_shot_sec: 2.0
   min_luma_std: 5.0
+
+audio:
+  sfx_on_transitions: false
 
 tts:
   ending_pad_frames: 15

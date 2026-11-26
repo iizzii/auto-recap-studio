@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import platform
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -73,6 +76,45 @@ def compute_fg_dimensions(
     return scaled_w, max(2, target_h)
 
 
+def select_h264_encoder(config: dict[str, Any], intermediate: bool = False) -> list[str]:
+    """Select h264_videotoolbox on local macOS, or libx264 on Linux/GitHub Actions."""
+    enc = config.get("encode", {})
+    rt = config.get("runtime", {})
+    if platform.system() == "Darwin" and os.environ.get("GITHUB_ACTIONS") != "true":
+        try:
+            res = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "h264_videotoolbox" in res.stdout:
+                bitrate = "12M" if intermediate else "8M"
+                return ["-c:v", "h264_videotoolbox", "-b:v", bitrate, "-allow_sw", "1"]
+        except Exception:
+            pass
+
+    if intermediate:
+        return [
+            "-c:v",
+            "libx264",
+            "-preset",
+            str(enc.get("intermediate_preset", "ultrafast")),
+            "-crf",
+            str(enc.get("intermediate_crf", 16)),
+        ]
+    return [
+        "-c:v",
+        "libx264",
+        "-preset",
+        str(enc.get("preset", "veryfast")),
+        "-crf",
+        str(enc.get("crf", 20)),
+        "-threads",
+        str(rt.get("threads", 2)),
+    ]
+
+
 def should_deinterlace(
     source_path: Path,
     sample_timestamps: list[float],
@@ -103,7 +145,6 @@ def _render_single_shot(
     rt = config.get("runtime", {})
     layout = config.get("layout", {})
     grade = config.get("grade", {})
-    enc = config.get("encode", {})
 
     fps = int(rt.get("fps", 30))
     width = int(rt.get("width", 1080))
@@ -178,12 +219,7 @@ def _render_single_shot(
             "-an",
             "-frames:v",
             str(shot.frames),
-            "-c:v",
-            "libx264",
-            "-preset",
-            str(enc.get("intermediate_preset", "ultrafast")),
-            "-crf",
-            str(enc.get("intermediate_crf", 16)),
+            *select_h264_encoder(config, intermediate=True),
             "-pix_fmt",
             "yuv420p",
             "-r",
@@ -212,10 +248,7 @@ def compose_video(
 
     fps = int(rt.get("fps", 30))
     width = int(rt.get("width", 1080))
-    threads = int(rt.get("threads", 2))
     parallel_jobs = max(1, int(enc.get("parallel_shot_jobs", 2)))
-    preset = str(enc.get("preset", "veryfast"))
-    crf = str(enc.get("crf", 20))
 
     inter_dir = work_dir / "intermediates"
     inter_dir.mkdir(parents=True, exist_ok=True)
@@ -304,14 +337,7 @@ def compose_video(
             "0:v:0",
             "-map",
             "1:a:0",
-            "-c:v",
-            "libx264",
-            "-preset",
-            preset,
-            "-crf",
-            crf,
-            "-threads",
-            str(threads),
+            *select_h264_encoder(config, intermediate=False),
             "-pix_fmt",
             "yuv420p",
             "-r",

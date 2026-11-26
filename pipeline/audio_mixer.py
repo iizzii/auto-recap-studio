@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import wave
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,11 @@ from pipeline.models import Beat
 log = logging.getLogger(__name__)
 
 _BGM_MANIFEST = Path(__file__).resolve().parent.parent / "assets" / "bgm" / "bgm_manifest.json"
-_BGM_CACHE_DIR = Path.home() / ".cache" / "recap_bgm"
+_BGM_CACHE_DIR = (
+    Path.home() / ".cache" / "recap_bgm"
+    if os.environ.get("GITHUB_ACTIONS") == "true"
+    else Path(".local_cache/bgm")
+)
 
 _MOOD_BUCKETS = {
     "tense": "suspense",

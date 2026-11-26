@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from dotenv import load_dotenv
 import typer
 import yaml
 
@@ -35,6 +36,8 @@ from pipeline import (
 )
 from pipeline.budget import TimeBudget
 from pipeline.models import ApprovalRecord, QueueFile, RunReport
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,

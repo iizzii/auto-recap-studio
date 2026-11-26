@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/tts_engine.py
+# hypothesis_version: 6.141.1
+
+[0.0, 0.0001, 0.36, 1.0, 1.18, 1.2, 1.5, 1000.0, 150, 175, 280, '+8%', ',', ', ', '-ac', '-af', '-ar', '-c', '-c:a', '-f', '-i', '-safe', '-t', '-y', '.mp3', '.wav', '0', '1', '21m00Tcm4TlvDq8ikWAM', '48000', 'Content-Type', 'ELEVENLABS_API_KEY', '_clean.wav', 'application/json', 'audio', 'backend', 'backoff_base_sec', 'beat_gap_frames', 'beat_loudness_lufs', 'concat', 'copy', 'edge_tts', 'eleven_turbo_v2_5', 'elevenlabs', 'en-US-AndrewNeural', 'ending_pad_frames', 'ffmpeg', 'fps', 'lavfi', 'max_duration_sec', 'max_global_atempo', 'mock', 'mock_tone_hz', 'model_id', 'pcm_s16le', 'rate', 'retries', 'runtime', 'stitched_voice.wav', 'text', 'trim_silence_db', 'tts', 'utf-8', 'voice', 'voice_concat.txt', 'volume=0.25', 'xi-api-key']

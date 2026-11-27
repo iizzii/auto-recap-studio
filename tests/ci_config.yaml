@@ -22,6 +22,7 @@ shots:
   hard_max_shot_sec: 3.5
   target_shot_sec: 2.0
   min_luma_std: 5.0
+  never_reuse_source_range: false
 
 audio:
   sfx_on_transitions: false

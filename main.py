@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 import typer
 import yaml
 
+from pipeline.models import Shot
+
 from pipeline import (
     audio_mixer,
     caption_engine,
@@ -224,7 +226,17 @@ def run(
             source_path=source_path,
             manifest=manifest_stub,
             rights=rights_rec,
-            shots=[],
+            shots=[
+                Shot(
+                    beat_id=1,
+                    shot_index=0,
+                    src_start_sec=allowed_range[0],
+                    src_end_sec=min(allowed_range[1], allowed_range[0] + 5.0),
+                    speed_factor=1.0,
+                    frames=150,
+                    match_score=8.0,
+                )
+            ],
             project_dir=project_dir,
             out_dir=out_dir,
             config=cfg,

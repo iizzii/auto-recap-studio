@@ -415,15 +415,20 @@ def select_shots(
             chosen_score = ranked[0][0] if ranked[0][2] else None
             has_vision = ranked[0][2]
 
+            found_non_overlap = False
             for r_val, cand, is_vis in ranked:
                 if not _overlaps(cand["start"], cand["end"]):
                     chosen_cand = cand
                     chosen_score = r_val if is_vis else None
                     has_vision = is_vis
+                    found_non_overlap = True
                     break
 
             c_start = chosen_cand["start"]
             c_end = chosen_cand["end"]
+            if not found_non_overlap and never_reuse and used_ranges:
+                c_start = min(max_allowed - 1.0, max(ue for _, ue in used_ranges) + 0.55)
+                c_end = min(max_allowed, c_start + target_sec)
             c_dur = max(0.5, c_end - c_start)
             speed = 1.0
             if c_dur < target_sec:

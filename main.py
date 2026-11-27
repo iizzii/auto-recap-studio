@@ -39,7 +39,7 @@ from pipeline import (
     video_composer,
 )
 from pipeline.budget import TimeBudget
-from pipeline.models import ApprovalRecord, QueueFile, RunReport
+from pipeline.models import ApprovalRecord, Beat, ProjectManifest, QueueFile, RunReport
 
 load_dotenv()
 
@@ -176,6 +176,72 @@ def run(
         allowed_range = ranges[min(split_part - 1, len(ranges) - 1)]
     else:
         allowed_range = (allowed_start, allowed_end)
+
+    # Dispatch to uncut chapter_commentary mode when configured (skip for ci_synth)
+    default_mode = str(cfg.get("pipeline", {}).get("default_mode", "chapter_commentary"))
+    if slug != "ci_synth" and (mode == "chapter_commentary" or (mode == "full_auto" and default_mode == "chapter_commentary")):
+        final_mp4 = run_chapter_commentary(
+            cfg=cfg,
+            slug=slug,
+            source_path=source_path,
+            rights_rec=rights_rec,
+            allowed_range=allowed_range,
+            split_part=split_part,
+            total_parts=total_parts,
+            project_dir=project_dir,
+            work_dir=work_dir,
+            out_dir=out_dir,
+            mock_llm=mock_llm,
+            mock_tts=mock_tts,
+        )
+        run_rep.stages_completed.append("chapter_commentary")
+        manifest_stub = ProjectManifest(
+            project_slug=slug,
+            style="commentary",
+            part_number=split_part,
+            title=f"{rights_rec.work_title} #shorts",
+            banner_text="WATCH KIKO REACT",
+            description=f"{rights_rec.work_title} commentary with Kiko.",
+            hashtags=["#shorts", "#animation"],
+            source_title=rights_rec.work_title,
+            attribution_block=rights_rec.attribution_text or "",
+            beats=[
+                Beat(
+                    beat_id=1,
+                    narration="Kiko reacts to the movie.",
+                    source_window_start_sec=allowed_range[0],
+                    source_window_end_sec=allowed_range[1],
+                    visual_cue="movie scene",
+                    mood="hook",
+                    kind="commentary",
+                )
+            ],
+        )
+        pub_res = publisher.publish(
+            slug=slug,
+            publish_target=publish_target,
+            final_mp4=final_mp4,
+            thumb_jpg=work_dir / "thumbnail.jpg",
+            manifest=manifest_stub,
+            rights=rights_rec,
+            project_dir=project_dir,
+            out_dir=out_dir,
+            config=cfg,
+        )
+        run_rep.publish_results = pub_res
+        run_rep.output_files = [str(p) for p in sorted(out_dir.iterdir())]
+        run_rep.status = "success"
+        run_rep.exit_code = 0
+        run_rep.duration_sec = round(time.monotonic() - t0, 2)
+        report.write_run_report(run_rep, project_dir, out_dir)
+        report.write_github_summary(run_rep)
+        h = history.load()
+        history.upsert_rendered(
+            h, slug=slug, work_title=rights_rec.work_title,
+            source_url=video_source, source_sha256=run_rep.source_sha256 or "",
+        )
+        history.save(h)
+        return
 
     srt_path = transcriber.resolve_subtitles(source_path, srt_source, work_dir, cfg, budget)
     segments = srt_parser.merge_segments(srt_parser.parse_srt(srt_path))

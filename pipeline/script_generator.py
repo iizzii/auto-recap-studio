@@ -396,7 +396,7 @@ def _mock_manifest(
         b_end = round(min(end_a, b_start + max(3.0, win - 0.5)), 2)
         if b_end <= b_start:
             b_end = round(b_start + 1.0, 2)
-        kind = "commentary" if (style == "commentary" and idx % 3 == 1) else "story"
+        kind = "commentary" if (style == "commentary" and idx == 1) else "story"
         if kind == "commentary":
             words = ["That", "quick", "move", "turns", "the", "whole", "tide", "fast."]
         else:

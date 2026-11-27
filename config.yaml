@@ -40,11 +40,11 @@ llm:
 
 script:
   style: commentary
-  min_words: 220
+  min_words: 140
   max_words: 330
-  min_beats: 14
+  min_beats: 10
   max_beats: 22
-  beat_min_words: 6
+  beat_min_words: 4
   beat_max_words: 20
   min_commentary_share: 0.12
   max_commentary_share: 0.25

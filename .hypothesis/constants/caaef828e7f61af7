@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/transcriber.py
+# hypothesis_version: 6.141.1
+
+[0.0, 600.0, 1000, 3600, '-ac', '-ar', '-c', '-c:a', '-i', '-map', '-ss', '-t', '-vn', '-y', '1', '16000', 'ass', 'codec_name', 'codec_type', 'copy', 'cpu', 'en', 'eng', 'extracted.srt', 'ffmpeg', 'index', 'int8', 'language', 'mov_text', 'pcm_s16le', 'runtime', 'small.en', 'source', 'source.srt', 'srt', 'ssa', 'streams', 'subrip', 'subtitle', 'subtitle_language', 'tags', 'text', 'threads', 'transcribe_16k.wav', 'transcribed.srt', 'utf-8', 'w', 'webvtt']

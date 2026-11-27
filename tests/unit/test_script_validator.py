@@ -23,11 +23,16 @@ def _base_config() -> dict[str, Any]:
 
 
 def _make_manifest(**overrides: Any) -> ProjectManifest:
+    sample_lines = [
+        "Suddenly Alice discovers a glowing door behind the old stone wall today.",
+        "She steps inside the dark tunnel and finds a golden key.",
+        "A giant shadow blocks her path near the silver gate.",
+        "She unlocks the gate and escapes into the bright morning.",
+    ]
     beats = [
         Beat(
             beat_id=i + 1,
-            # Beat 1 deliberately opens with a universal subject "Suddenly" (not a char name)
-            narration="Suddenly Alice discovers a glowing door behind the old stone wall today.",
+            narration=sample_lines[i],
             source_window_start_sec=float(i * 10),
             source_window_end_sec=float(i * 10 + 8),
             visual_cue="Alice opens glowing stone door",

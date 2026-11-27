@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/models.py
+# hypothesis_version: 6.141.1
+
+[0.5, 2.0, 175, '^[a-z0-9_]{3,40}$', 'action', 'after', 'all_private', 'all_rights_reserved', 'banner_text', 'calm', 'cc0', 'cc_by', 'cc_by_nc', 'cc_by_nd', 'cc_by_sa', 'cliffhanger', 'commentary', 'deferred', 'done', 'emotional', 'failed', 'funny', 'hook', 'instagram', 'licensed', 'low_match', 'manual', 'motion_only', 'owned', 'partial', 'pending', 'public_domain', 'published_all', 'published_partial', 'queued', 'recap', 'rendered', 'reveal', 'story', 'success', 'tense', 'unknown', 'youtube']

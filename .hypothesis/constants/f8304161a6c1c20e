@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/source_fetcher.py
+# hypothesis_version: 6.141.1
+
+[4.0, 6.0, 120, 206, 416, 1024, '.avi', '.mkv', '.mov', '.mp4', '.webm', '/', 'AWS_ACCESS_KEY_ID', 'Content-Length', 'R2_ACCESS_KEY_ID', 'R2_ENDPOINT_URL', 'R2_SECRET_ACCESS_KEY', 'Range', 'User-Agent', '[A-Za-z0-9_-]{20,}', 'ab', 'archive.org', 'codec_type', 'details', 'drive', 'drive.google.com', 'files', 'http', 'https', 'max_source_gb', 'min_free_disk_gb', 'name', 'r2', 'rb', 'runtime', 's3', 'source', 'streams', 'v3', 'video', 'wb']

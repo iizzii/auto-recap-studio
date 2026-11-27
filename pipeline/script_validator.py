@@ -72,6 +72,20 @@ BANNED_META_PHRASES: tuple[str, ...] = (
     "final, humiliating punishment",
     "final humiliating punishment",
     "restores peace",
+    "big mistake",
+    "bad idea",
+    "worst idea ever",
+    "worst timing possible",
+    "pure madness",
+    "unbelievable",
+    "talk about a",
+    "recipe for disaster",
+    "wild beyond belief",
+    "pure unadulterated",
+    "total recipe",
+    "asking for serious trouble",
+    "absolute middle of nowhere",
+    "ever imaginable",
 )
 
 BANNED_AUDIO_HALLUCINATION_PHRASES: tuple[str, ...] = (
@@ -117,7 +131,9 @@ def validate_manifest(
     max_beats = int(script_cfg.get("max_beats", 26))
     beat_min_words = int(script_cfg.get("beat_min_words", 12))
     beat_max_words = int(script_cfg.get("beat_max_words", 28))
-    min_commentary_share = float(script_cfg.get("min_commentary_share", 0.25))
+    min_commentary_share = float(script_cfg.get("min_commentary_share", 0.12))
+    max_commentary_share = float(script_cfg.get("max_commentary_share", 0.25))
+    min_story_between = int(script_cfg.get("min_story_beats_between_commentary", 2))
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -239,8 +255,48 @@ def validate_manifest(
             errors.append(
                 f"Commentary share {share:.2f} < minimum {min_commentary_share:.2f}."
             )
+        if share > max_commentary_share:
+            errors.append(
+                f"Commentary share {share:.2f} > maximum {max_commentary_share:.2f}."
+            )
+        last_comm_idx = -999
+        for idx, b in enumerate(beats):
+            if b.kind == "commentary":
+                if len(b.narration.split()) > 12:
+                    errors.append(
+                        f"Beat {b.beat_id} commentary exceeds 12 words ({len(b.narration.split())})."
+                    )
+                if idx - last_comm_idx - 1 < min_story_between:
+                    errors.append(
+                        f"Beat {b.beat_id} commentary too close to previous commentary (need >= {min_story_between} story beats between)."
+                    )
+                last_comm_idx = idx
     elif manifest.style == "recap" and commentary_count > 0:
         errors.append("Style 'recap' must not contain 'commentary' beats.")
+
+    # Grammar & adjacent 7+ char word repetition guard
+    _a_vowel_re = re.compile(r"\ba\s+([aeiou]\w+)", re.IGNORECASE)
+    _a_exceptions = {"one", "unique", "united", "uniform", "usual", "useful", "once"}
+    _char_names: set[str] = set()
+    if ledger:
+        for ev in ledger.get("events", []):
+            for ch in ev.get("characters", []):
+                _char_names.update(w.lower() for w in ch.split())
+    prev_long_words: set[str] = set()
+    for b in beats:
+        for m in _a_vowel_re.finditer(b.narration):
+            nxt = m.group(1).lower()
+            if nxt not in _a_exceptions:
+                errors.append(f"Beat {b.beat_id} grammar error: 'a {m.group(1)}' should use 'an'.")
+        cur_long = {
+            w.lower().strip(".,!?;:\"'")
+            for w in b.narration.split()
+            if len(w.strip(".,!?;:\"'")) >= 7 and w.lower().strip(".,!?;:\"'") not in _char_names
+        }
+        overlap = prev_long_words & cur_long
+        if overlap:
+            errors.append(f"Beat {b.beat_id} repeats 7+ char word from previous beat: {sorted(overlap)[0]}.")
+        prev_long_words = cur_long
 
     if len(manifest.title) > 75:
         errors.append(f"Title length {len(manifest.title)} > 75 chars.")

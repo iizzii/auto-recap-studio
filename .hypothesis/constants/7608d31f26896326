@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/clip_selector.py
+# hypothesis_version: 6.141.1
+
+[0.0, 0.1, 0.15, 0.5, 0.85, 0.97, 1.0, 1.05, 1.1, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 18.0, 27.0, 30.0, 1000.0, 175, 180, 240, 255, 280, 320, 350, 1024, 1200, '-', '-an', '-c:v', '-crf', '-i', '-preset', '-ss', '-t', '-vf', '-y', '04_shot_list.json', '04_storyboard.jpg', '28', 'JPEG', 'RGB', 'candidates_per_beat', 'emotional', 'enabled', 'end', 'expand', 'ffmpeg', 'fps', 'frames', 'heuristic', 'is_title_or_credits', 'libx264', 'low_match', 'min_luma', 'min_luma_std', 'min_match_score', 'motion', 'motion_only', 'motion_sample_fps', 'proxies', 'proxy_height', 'reveal', 'runtime', 'scene_threshold', 'score', 'shots', 'speed_range', 'start', 'ultrafast', 'utf-8', 'vision']

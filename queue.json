@@ -26,6 +26,19 @@
       "status": "pending",
       "error": null,
       "completed_on": null
+    },
+    {
+      "slug": "sprite_fright_21",
+      "video_source_url": "https://video.blender.org/download/videos/3d95fb3d-c866-42c8-9db1-fe82f483f5fe-1080.mp4",
+      "srt_source_url": null,
+      "style": "commentary",
+      "split_part": 0,
+      "max_duration": 175,
+      "publish_target": "artifact_only",
+      "auto_approve": false,
+      "status": "pending",
+      "error": null,
+      "completed_on": null
     }
   ]
 }

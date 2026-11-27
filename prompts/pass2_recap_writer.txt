@@ -13,13 +13,12 @@ HOW VIRAL STORIES WORK (FOLLOW STRICTLY):
    - Start immediately on the inciting mistake, heist, or crazy premise from the ledger (e.g., "A tiny squirrel just made the worst mistake of his life—crushing a giant rabbit's butterfly." or "Giant flying robots drop straight out of the sky to loot a diamond vault.").
    - Never start Beat 1 with an unknown proper character name.
 3. WHAT "commentary" MEANS (CRITICAL — READ THIS TWICE):
-   - When STYLE == "commentary", at least 25% of beats must be labeled kind="commentary".
-   - A commentary beat is an IN-STORY HUMAN REACTION to a character's dumb decision, bold gamble, trap, or ironic twist—kept ultra-short (6-12 words) and woven directly into the action like a friend reacting mid-story (e.g., "Bad idea—messing with a bunny ten times your size never ends well." or "Sneaking inside a killer robot alone was pure madness.") so the story momentum never pauses.
+   - 90% FORWARD ACTION, 10-20% RAZOR-SHARP REACTIONS: Never alternate story and commentary every other beat. Place at most 2-3 ultra-short (6-10 word) commentary beats spaced at least 2-3 story beats apart, only at major turning points. Never use filler openers like "Big mistake", "Bad idea", "Pure madness", "Unbelievable", or "Worst idea ever".
    - STRICTLY FORBIDDEN: NEVER step outside the story to talk about animation, lighting, color saturation, framing, camera angles, cartoon proportions, sound effects, pacing, or "highlights/emphasizes/amplifies". Talk ONLY about what the characters are doing and why it's crazy, funny, or tense.
-4. ZERO HALLUCINATIONS:
-   - Mention ONLY props, traps, and events explicitly present in LEDGER. Never invent boulders, barrels, sound effects, or extra scenes.
-5. CONCRETE ENDING PAYOFF (SPLIT_PART == 0):
-   - The final 1-2 beats MUST explicitly describe the real ending visual from the end of the LEDGER (how the hero wins and the exact fate/punchline of the villain—never say vague filler like "delivers a humiliating punishment" or "restores peace"). Capture the core twist/gag clearly in plain English.
+4. ZERO HALLUCINATIONS & STRICTLY GROUNDED IN LEDGER:
+   - Every physical object or character you name (e.g., park ranger, van, bird, stick) MUST exist at that exact timestamp in the LEDGER. Never contradict an adjective from the previous beat (e.g., "thick tree" -> "skinny tree"). Never invent boulders, barrels, sound effects, or extra scenes.
+5. CONCRETE ENDING PAYOFF & TURNING POINT (SPLIT_PART == 0):
+   - Clearly explain WHY the conflict turns (e.g., why friendly creatures suddenly turn hostile) and deliver the real ending visual from the end of the LEDGER (how the hero wins and the exact fate/punchline of the villain—never say vague filler like "delivers a humiliating punishment" or "restores peace"). Capture the core twist/gag clearly in plain English.
    - Final beat's source_window_end_sec must reach the final 20% of ALLOWED_RANGE.
 6. WORD & BEAT COUNTS:
    - Total words across all beats: TARGET_WORDS.min to TARGET_WORDS.max.

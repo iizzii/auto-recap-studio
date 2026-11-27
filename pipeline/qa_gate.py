@@ -181,6 +181,22 @@ def run_qa_gate(
         if deinterlace.detect_combing(final_mp4, sample_ts, threshold=1.30):
             failures.append("Residual interlacing/combing detected in final_short.mp4.")
 
+    # 3. No frozen/overlong shots & no overlapping source ranges
+    hard_max = float(config.get("shots", {}).get("hard_max_shot_sec", 3.5))
+    fps = float(config.get("runtime", {}).get("fps", 30))
+    for s in shots:
+        shot_dur = s.frames / fps
+        if shot_dur > hard_max + 0.3:
+            failures.append(f"Shot B{s.beat_id}_S{s.shot_index} duration {shot_dur:.2f}s > {hard_max + 0.3:.2f}s.")
+    if config.get("shots", {}).get("never_reuse_source_range", True):
+        sorted_shots = sorted(shots, key=lambda x: x.src_start_sec)
+        for a, b in zip(sorted_shots, sorted_shots[1:]):
+            if a.src_end_sec > b.src_start_sec + 0.05:
+                failures.append(
+                    f"Overlapping source ranges: B{a.beat_id} ({a.src_start_sec}-{a.src_end_sec}s) "
+                    f"and B{b.beat_id} ({b.src_start_sec}-{b.src_end_sec}s)."
+                )
+                break
     # 2. Vision sync score check
     scores = [float(s.match_score) for s in shots if s.match_score is not None]
     avg_match_score = round(sum(scores) / len(scores), 2) if scores else 0.0

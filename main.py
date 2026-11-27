@@ -162,11 +162,14 @@ def run(
     allowed_start = min(allowed_start, max(0.0, src_dur - 10.0))
     tail_pct = float(src_cfg.get("exclude_tail_pct", 8))
     allowed_end = max(allowed_start + 5.0, src_dur * (1.0 - tail_pct / 100.0))
+    if split_part > 0 and src_dur <= 900:
+        log.warning(
+            "Source duration %.1fs <= 15 min: shorts perform best as a single complete video (split_part=0).",
+            src_dur,
+        )
     if split_part > 0 and total_parts > 1:
-        part_span = (allowed_end - allowed_start) / total_parts
-        part_start = allowed_start + (split_part - 1) * part_span
-        part_end = allowed_start + split_part * part_span
-        allowed_range = (part_start, max(part_start + 5.0, part_end))
+        ranges = compute_series_ranges(allowed_start, allowed_end, total_parts)
+        allowed_range = ranges[min(split_part - 1, len(ranges) - 1)]
     else:
         allowed_range = (allowed_start, allowed_end)
 
@@ -467,6 +470,53 @@ def show_history() -> None:
         yt_s = "YT:yes" if yt and yt.published else "YT:no"
         ig_s = "IG:yes" if ig and ig.published else "IG:no"
         typer.echo(f"  - {r.slug} ({r.work_title}) [{r.status}] {yt_s} {ig_s}")
+
+
+def compute_series_ranges(
+    allowed_start: float, allowed_end: float, parts: int
+) -> list[tuple[float, float]]:
+    """Partition [allowed_start, allowed_end] into N strictly chronological, non-overlapping slices."""
+    n = max(1, parts)
+    slice_len = max(5.0, (allowed_end - allowed_start) / n)
+    return [
+        (
+            round(allowed_start + k * slice_len, 2),
+            round(min(allowed_end, allowed_start + (k + 1) * slice_len), 2),
+        )
+        for k in range(n)
+    ]
+
+
+@app.command(name="run-series")
+def run_series(
+    slug: str = typer.Option(..., "--slug", help="Base project slug."),
+    video_source: str = typer.Option(..., "--video-source", help="Video URL or local path."),
+    parts: int = typer.Option(3, "--parts", help="Number of chronological parts."),
+    srt_source: Optional[str] = typer.Option(None, "--srt-source", help="Optional subtitle URL."),
+    style: str = typer.Option("commentary", "--style", help="commentary | recap"),
+    publish_target: str = typer.Option("artifact_only", "--publish-target", help="Delivery target."),
+    force: bool = typer.Option(True, "--force", help="Force regenerate."),
+) -> None:
+    """Render an N-part chronological series sequentially."""
+    for k in range(1, parts + 1):
+        typer.echo(f"Rendering {slug} Part {k}/{parts}...")
+        run(
+            config=Path("config.yaml"),
+            slug=slug,
+            video_source=video_source,
+            srt_source=srt_source,
+            mode="full_auto",
+            style=style,
+            publish_target=publish_target,
+            mock_llm=False,
+            mock_tts=False,
+            mock_vision=False,
+            force=force,
+            split_part=k,
+            total_parts=parts,
+            max_duration=175,
+            allow_reproduce=True,
+        )
 
 
 if __name__ == "__main__":

@@ -382,7 +382,7 @@ def select_shots(
     def _overlaps(s: float, e: float) -> bool:
         if not never_reuse:
             return False
-        return any(min(e, ue) - max(s, us) > 0.25 for us, ue in used_ranges)
+        return any(min(e, ue + 0.5) - max(s, us - 0.5) > 0.0 for us, ue in used_ranges)
 
     last_selected_src_end: float = float(allowed_range[0])
 
@@ -391,9 +391,14 @@ def select_shots(
         v_list = vision_scores.get(beat.beat_id, [])
         ranked_all: list[tuple[float, dict[str, Any], bool]] = []
         for idx, cand in enumerate(cands):
-            v_score = float(v_list[idx]["score"]) if idx < len(v_list) else None
+            v_item = v_list[idx] if idx < len(v_list) else None
+            if v_item and (v_item.get("is_title_or_credits") or float(v_item.get("score", 10)) <= 2):
+                continue
+            v_score = float(v_item["score"]) if v_item is not None else None
             rank_val = v_score if v_score is not None else cand["heuristic"]
             ranked_all.append((rank_val, cand, v_score is not None))
+        if not ranked_all and cands:
+            ranked_all = [(cands[0]["heuristic"], cands[0], False)]
 
         if beat.beat_id > 1:
             mono_floor = max(beat.source_window_start_sec - 3.0, last_selected_src_end - 2.0)

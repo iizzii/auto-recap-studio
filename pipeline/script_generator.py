@@ -396,10 +396,15 @@ def _mock_manifest(
         b_end = round(min(end_a, b_start + max(3.0, win - 0.5)), 2)
         if b_end <= b_start:
             b_end = round(b_start + 1.0, 2)
-        words = sample_words[:target_per_beat]
-        if idx == 0:
-            words[0] = "Suddenly"
         kind = "commentary" if (style == "commentary" and idx % 3 == 1) else "story"
+        if kind == "commentary":
+            words = ["That", "quick", "move", "turns", "the", "whole", "tide", "fast."]
+        else:
+            offset = (idx * 5) % len(sample_words)
+            rotated = sample_words[offset:] + sample_words[:offset]
+            words = rotated[:target_per_beat]
+            if idx == 0:
+                words[0] = "Suddenly"
         mood = "hook" if idx == 0 else ("cliffhanger" if idx == n_beats - 1 else "action")
         beats.append(
             Beat(

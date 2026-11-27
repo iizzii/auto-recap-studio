@@ -456,6 +456,19 @@ def mark_published(
     if platform in ("instagram", "both"):
         history.mark_published(h, slug=slug, platform="instagram", url=instagram_url)
     history.save(h)
+
+    cal_path = Path("release_calendar_365.json")
+    if cal_path.exists():
+        from pipeline.models import ReleaseCalendar365
+        cal = ReleaseCalendar365(**json.loads(cal_path.read_text(encoding="utf-8")))
+        changed = False
+        for s in cal.slots:
+            if s.base_slug == slug or s.slot_id == slug:
+                s.status = "published"
+                changed = True
+        if changed:
+            cal_path.write_text(cal.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
     typer.echo(f"Marked '{slug}' as published on {platform}.")
 
 
@@ -517,6 +530,106 @@ def run_series(
             max_duration=175,
             allow_reproduce=True,
         )
+
+
+@app.command(name="build-calendar")
+def build_calendar_cmd(
+    target_days: int = typer.Option(365, "--target-days", help="Target number of daily slots."),
+    include_youtube_cc: bool = typer.Option(False, "--include-youtube-cc", help="Include yt-dlp CC-BY."),
+    mock_llm: bool = typer.Option(False, "--mock-llm", help="Use deterministic scores."),
+) -> None:
+    """Build release_calendar_365.json and RELEASE_CALENDAR_365.md."""
+    from scripts.build_365_calendar import build_calendar
+    cal = build_calendar(
+        target_days=target_days,
+        include_youtube_cc=include_youtube_cc,
+        mock_llm=mock_llm,
+    )
+    typer.echo(f"Generated {cal.total_slots} calendar slots in release_calendar_365.json.")
+
+
+@app.command(name="run-next-day")
+def run_next_day(
+    publish_target: str = typer.Option("artifact_only", "--publish-target", help="Delivery target."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Select next slot without rendering."),
+) -> None:
+    """Pick the next scheduled day from release_calendar_365.json and render it."""
+    from pipeline.models import ReleaseCalendar365, RightsRecord
+
+    cal_path = Path("release_calendar_365.json")
+    if not cal_path.exists():
+        typer.echo("release_calendar_365.json not found.")
+        raise typer.Exit(code=1)
+
+    cal = ReleaseCalendar365(**json.loads(cal_path.read_text(encoding="utf-8")))
+    h = history.load()
+    is_gha = os.environ.get("GITHUB_ACTIONS") == "true"
+
+    chosen = None
+    for slot in sorted(cal.slots, key=lambda s: s.day_number):
+        if slot.status != "scheduled":
+            continue
+        if is_gha and slot.runner_target != "github_actions":
+            continue
+        rec = history.is_duplicate(h, slug=slot.base_slug, work_title=slot.work_title)
+        if rec is not None and history.is_published_anywhere(rec):
+            slot.status = "published"
+            continue
+        if slot.license == "public_domain" and not slot.pd_verified_by_human:
+            slot.status = "awaiting_pd_verification"
+            typer.echo(f"Day {slot.day_number} ({slot.work_title}) awaiting PD verification: {slot.source_page_url}")
+            continue
+        chosen = slot
+        break
+
+    cal_path.write_text(cal.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    if chosen is None:
+        typer.echo("No eligible scheduled slots remaining.")
+        return
+
+    typer.echo(f"Selected Day {chosen.day_number}: {chosen.work_title} (Part {chosen.part_number}/{chosen.total_parts})")
+    if dry_run:
+        return
+
+    proj_dir = Path("projects") / chosen.base_slug
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    if not (proj_dir / "rights.json").exists():
+        rr = RightsRecord(
+            work_title=chosen.work_title,
+            creator=chosen.source_provider,
+            year=chosen.year or 2020,
+            license=chosen.license,
+            license_url=chosen.license_url,
+            source_page_url=chosen.source_page_url,
+            commercial_use_allowed=True,
+            derivatives_allowed=True,
+            attribution_text=chosen.attribution_text,
+            pd_verified_by_human=chosen.pd_verified_by_human,
+            exclude_head_sec=chosen.exclude_head_sec,
+            verified_by="calendar_365",
+            verified_on=dt.date.today().isoformat(),
+        )
+        (proj_dir / "rights.json").write_text(rr.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+    run(
+        config=Path("config.yaml"),
+        slug=chosen.base_slug,
+        video_source=chosen.video_url,
+        srt_source=chosen.srt_url,
+        mode="full_auto",
+        style="commentary",
+        publish_target=publish_target,
+        mock_llm=False,
+        mock_tts=False,
+        mock_vision=False,
+        force=True,
+        split_part=0 if chosen.total_parts == 1 else chosen.part_number,
+        total_parts=chosen.total_parts,
+        max_duration=175,
+        allow_reproduce=True,
+    )
+    chosen.status = "rendered"
+    cal_path.write_text(cal.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

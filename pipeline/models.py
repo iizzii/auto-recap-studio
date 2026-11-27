@@ -237,3 +237,36 @@ class SeriesBlueprint(BaseModel):
     total_parts: int
     characters: list[CharacterEntry] = Field(default_factory=list)
     parts: list[SeriesPartPlan]
+
+
+class CalendarSlot(BaseModel):
+    day_number: int = Field(..., ge=1, le=365)
+    slot_id: str
+    base_slug: str
+    work_title: str
+    year: Optional[int] = None
+    part_number: int = Field(..., ge=1)
+    total_parts: int = Field(..., ge=1)
+    source_provider: str
+    runner_target: Literal["github_actions", "personal_mac"] = "github_actions"
+    license: Literal["cc0", "cc_by", "cc_by_sa", "public_domain"]
+    license_url: str
+    source_page_url: str
+    video_url: str
+    srt_url: Optional[str] = None
+    attribution_text: str
+    duration_sec: float
+    likes: int = 0
+    views: int = 0
+    editorial_score: float = Field(..., ge=0.0, le=100.0)
+    viral_hook_angle: str
+    exclude_head_sec: Optional[float] = None
+    pd_verified_by_human: bool = False
+    status: Literal["scheduled", "rendered", "published", "skipped", "awaiting_pd_verification"] = "scheduled"
+
+
+class ReleaseCalendar365(BaseModel):
+    schema_version: int = 1
+    generated_at: str
+    total_slots: int
+    slots: list[CalendarSlot]

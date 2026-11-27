@@ -1,0 +1,85 @@
+name: Daily Publisher
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run without rendering"
+        required: false
+        type: boolean
+        default: false
+      publish_target:
+        description: "Delivery target"
+        required: true
+        type: choice
+        default: artifact_only
+        options:
+          - artifact_only
+          - telegram
+          - youtube_private
+          - youtube_public
+  # Uncomment to enable daily 12:00 PM IST (06:30 UTC) automated publishing:
+  # schedule:
+  #   - cron: "30 6 * * *"
+
+jobs:
+  daily-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: write
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache BGM tracks
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/recap_bgm
+          key: recap-bgm-v1
+
+      - name: Run Next Day Slot
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH_TARGET: ${{ inputs.publish_target }}
+        run: |
+          DRY_FLAG=""
+          if [ "$DRY_RUN" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          python main.py run-next-day --publish-target "$PUBLISH_TARGET" $DRY_FLAG
+
+      - name: Upload daily video artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: daily-publisher-output
+          path: |
+            /tmp/recap_work/*/output/final_short.mp4
+            /tmp/recap_work/*/output/metadata.json
+          if-no-files-found: ignore
+          retention-days: 2
+
+      - name: Commit calendar and history updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release_calendar_365.json published_history.json projects/ || true
+          git diff --cached --quiet || (git commit -m "chore(daily): update calendar and history [skip ci]" && git pull --rebase origin main && git push)

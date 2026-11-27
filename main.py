@@ -217,7 +217,7 @@ def run(
                 )
             ],
         )
-        pub_res = publisher.publish(
+        pub_res = publisher.publish_outputs(
             slug=slug,
             publish_target=publish_target,
             final_mp4=final_mp4,

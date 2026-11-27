@@ -34,3 +34,9 @@ HOW VIRAL STORIES WORK (FOLLOW STRICTLY):
    - hashtags: 3-5 relevant hashtags.
 
 OUTPUT: ONLY valid JSON matching ProjectManifest draft schema (title, banner_text, description, hashtags, beats[{beat_id, narration, source_window_start_sec, source_window_end_sec, visual_cue, mood, kind}]).
+
+SERIES_CONTEXT (when provided for multi-part series):
+- Use exact canonical names from CHARACTER_BIBLE consistently across every beat.
+- Part 1: Open with a universal hook, introduce the hero by canonical name by Beat 2, and end on ENDING_HOOK (sharp cliffhanger — NEVER mention FORBIDDEN_FUTURE_SPOILER).
+- Part 2..N-1: Open Beat 1 with an immediate continuity handoff from PREVIOUS_CLIFFHANGER (NEVER re-introduce characters as strangers), advance through ARC_GOAL, and end on ENDING_HOOK.
+- Part N (Finale): Open Beat 1 directly from PREVIOUS_CLIFFHANGER and deliver the complete climax + final twist/epilogue.

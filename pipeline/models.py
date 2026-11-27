@@ -213,3 +213,27 @@ class PublishedHistory(BaseModel):
 
     schema_version: int = 1
     records: list[HistoryRecord] = Field(default_factory=list)
+
+
+class CharacterEntry(BaseModel):
+    name: str
+    short_role: str
+
+
+class SeriesPartPlan(BaseModel):
+    part_number: int = Field(..., ge=1)
+    total_parts: int = Field(..., ge=1)
+    window_start_sec: float = Field(..., ge=0.0)
+    window_end_sec: float = Field(..., gt=0.0)
+    arc_goal: str
+    previous_cliffhanger: str = ""
+    ending_hook: str
+    forbidden_future_spoiler: str = ""
+
+
+class SeriesBlueprint(BaseModel):
+    base_slug: str
+    work_title: str
+    total_parts: int
+    characters: list[CharacterEntry] = Field(default_factory=list)
+    parts: list[SeriesPartPlan]

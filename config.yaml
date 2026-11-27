@@ -40,15 +40,15 @@ llm:
 
 script:
   style: commentary
-  min_words: 140
+  min_words: 170
   max_words: 330
-  min_beats: 10
+  min_beats: 12
   max_beats: 22
-  beat_min_words: 4
+  beat_min_words: 6
   beat_max_words: 20
-  min_commentary_share: 0.12
-  max_commentary_share: 0.25
-  max_consecutive_commentary: 1
+  min_commentary_share: 0.10
+  max_commentary_share: 0.22
+  max_commentary_beat_words: 12
   min_story_beats_between_commentary: 2
   split_cliffhanger_range: [0.40, 0.50]
 

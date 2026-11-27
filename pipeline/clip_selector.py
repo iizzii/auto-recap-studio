@@ -176,6 +176,7 @@ def select_shots(
     config: dict[str, Any],
     *,
     mock_vision: bool = False,
+    external_used_ranges: list[tuple[float, float]] | None = None,
 ) -> list[Shot]:
     """Select vision-verified, non-overlapping shots matching exact timeline frames."""
     runtime_cfg = config.get("runtime", {})
@@ -200,7 +201,7 @@ def select_shots(
 
     beat_candidates: dict[int, list[dict[str, Any]]] = {}
     all_selected: list[Shot] = []
-    used_ranges: list[tuple[float, float]] = []
+    used_ranges: list[tuple[float, float]] = external_used_ranges if external_used_ranges is not None else []
     min_allowed, max_allowed = allowed_range
 
     for beat, _shot_frame_list in zip(manifest.beats, planned_frames):

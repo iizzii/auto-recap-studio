@@ -118,6 +118,7 @@ def validate_manifest(
     config: dict[str, Any],
     allowed_range: tuple[float, float],
     ledger: dict[str, Any] | None = None,
+    series_part_plan: Any = None,
 ) -> tuple[list[str], list[str]]:
     """Validate *manifest* against script config rules.
 
@@ -175,9 +176,10 @@ def validate_manifest(
                 for vague in _VAGUE_BEAT1_PLACEHOLDERS:
                     if vague in low:
                         errors.append(f"Beat 1 uses vague placeholder '{vague}'; name the character/visual.")
-            # No character name as the very first word of Beat 1
+            # No character name as the very first word of Beat 1 (ONLY for standalone or Part 1)
             first_word = beat.narration.strip().split()[0].rstrip(",.!?") if beat.narration.strip() else ""
-            if ledger:
+            is_part_1_or_single = series_part_plan is None or getattr(series_part_plan, "part_number", 1) == 1
+            if ledger and is_part_1_or_single:
                 ledger_names: set[str] = set()
                 for ev in ledger.get("events", []):
                     for ch in ev.get("characters", []):
@@ -187,6 +189,12 @@ def validate_manifest(
                         f"Beat 1 starts with a character name '{first_word}'. "
                         "Open with a universal hook ('This girl...', 'A lone traveler...', 'After finding...') instead."
                     )
+            if series_part_plan is not None and getattr(series_part_plan, "part_number", 1) >= 2:
+                for reset_phrase in ("a young camper", "a sleeping camper", "a young female", "a young nature", "a lone traveler", "a group of"):
+                    if reset_phrase in low:
+                        errors.append(
+                            f"Part {series_part_plan.part_number} Beat 1 resets characters as strangers ('{reset_phrase}'); use canonical names and continue from the cliffhanger."
+                        )
 
         low_nar = beat.narration.lower()
         for cliche in BANNED_META_PHRASES:

@@ -295,7 +295,7 @@ def validate_manifest(
         }
         overlap = prev_long_words & cur_long
         if overlap:
-            errors.append(f"Beat {b.beat_id} repeats 7+ char word from previous beat: {sorted(overlap)[0]}.")
+            warnings.append(f"Beat {b.beat_id} repeats 7+ char word from previous beat: {sorted(overlap)[0]}.")
         prev_long_words = cur_long
 
     if len(manifest.title) > 75:

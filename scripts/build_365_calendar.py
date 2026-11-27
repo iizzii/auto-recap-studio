@@ -268,13 +268,14 @@ def build_calendar(
     md_lines = [
         "# 365-Day Ranked Release Calendar",
         "",
-        "| Day | Title | Part | License | Likes | Score | Runner | Hook |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Day | Title | Part | Duration | License | Likes | Score | Runner | Video URL | Hook |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for s in slots:
+        dur_min = f"{s.duration_sec / 60.0:.1f}m"
         md_lines.append(
-            f"| {s.day_number} | {s.work_title} | {s.part_number}/{s.total_parts} | "
-            f"{s.license} | {s.likes} | {s.editorial_score} | {s.runner_target} | {s.viral_hook_angle} |"
+            f"| {s.day_number} | {s.work_title} | {s.part_number}/{s.total_parts} | {dur_min} | "
+            f"{s.license} | {s.likes} | {s.editorial_score} | {s.runner_target} | {s.video_url} | {s.viral_hook_angle} |"
         )
     _CALENDAR_MD.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
     return cal

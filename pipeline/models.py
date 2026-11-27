@@ -127,6 +127,7 @@ class RightsRecord(BaseModel):
     soundtrack_rights_note: Optional[str] = None
     exclude_head_sec: Optional[float] = None
     exclude_tail_sec: Optional[float] = None
+    mute_source_audio: bool = False
     verified_by: str = Field(min_length=1)
     verified_on: str = Field(min_length=1)
 
@@ -270,3 +271,36 @@ class ReleaseCalendar365(BaseModel):
     generated_at: str
     total_slots: int
     slots: list[CalendarSlot]
+
+
+HostEmotion = Literal[
+    "neutral", "laughing", "shocked", "horrified",
+    "smug", "hyped", "sad", "facepalm"
+]
+MovieGenre = Literal["comedy", "horror_comedy", "action_scifi", "emotional_drama"]
+
+
+class ChapterSlice(BaseModel):
+    part_number: int = Field(..., ge=1)
+    total_parts: int = Field(..., ge=1)
+    start_sec: float = Field(..., ge=0.0)
+    end_sec: float = Field(..., gt=0.0)
+    duration_sec: float = Field(..., gt=0.0)
+
+
+class CommentaryCue(BaseModel):
+    cue_id: int = Field(..., ge=1)
+    start_sec: float = Field(..., ge=0.0)
+    max_duration_sec: float = Field(..., gt=0.5)
+    text: str
+    emotion: HostEmotion
+    pause_emotion: HostEmotion = "neutral"
+
+
+class ChapterCommentaryScript(BaseModel):
+    genre: MovieGenre
+    voice_name: str
+    voice_rate: str
+    chapter_title: str
+    cliffhanger_summary: str = ""
+    cues: list[CommentaryCue]

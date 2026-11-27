@@ -19,9 +19,13 @@ import yaml
 from pipeline import (
     audio_mixer,
     caption_engine,
+    chapter_commentator,
+    chapter_composer,
+    chapter_slicer,
     clip_selector,
     ffutil,
     history,
+    host_animator,
     publisher,
     qa_gate,
     report,
@@ -530,6 +534,58 @@ def run_series(
             max_duration=175,
             allow_reproduce=True,
         )
+
+
+def run_chapter_commentary(
+    cfg: dict[str, Any],
+    slug: str,
+    source_path: Path,
+    rights_rec: Any,
+    allowed_range: tuple[float, float],
+    split_part: int,
+    total_parts: int,
+    project_dir: Path,
+    work_dir: Path,
+    out_dir: Path,
+    *,
+    mock_llm: bool = False,
+    mock_tts: bool = False,
+) -> Path:
+    """Execute uncut chapter_commentary mode with Kiko host booth."""
+    plan_path = project_dir / "chapters_plan.json"
+    if plan_path.exists() and split_part > 1:
+        from pipeline.models import ChapterSlice
+        slices = [ChapterSlice(**x) for x in json.loads(plan_path.read_text(encoding="utf-8"))]
+    else:
+        slices = chapter_slicer.plan_chapters(
+            source_path, allowed_range[0], allowed_range[1], total_parts if split_part > 0 else 0, cfg
+        )
+        project_dir.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text(json.dumps([s.model_dump() for s in slices], indent=2) + "\n", encoding="utf-8")
+
+    idx = max(0, min(len(slices) - 1, (split_part - 1) if split_part > 0 else 0))
+    ch_slice = slices[idx]
+    sheet = chapter_slicer.extract_labeled_contact_sheet(
+        source_path, ch_slice.start_sec, ch_slice.end_sec,
+        float(cfg.get("chapter_commentary", {}).get("contact_sheet_interval_sec", 3.0)),
+        work_dir / f"chapter_{ch_slice.part_number}_sheet.jpg",
+    )
+    script = chapter_commentator.generate_chapter_commentary(
+        sheet, ch_slice, rights_rec.work_title, cfg, mock_llm=mock_llm
+    )
+    full_wav, timings_json, ass_path = chapter_commentator.synthesize_timed_commentary(
+        script, ch_slice.duration_sec, work_dir, cfg, mock_tts=mock_tts
+    )
+    timings = json.loads(timings_json.read_text(encoding="utf-8"))
+    host_mp4 = host_animator.render_host_booth_video(
+        full_wav, timings, script.genre, ch_slice.duration_sec, work_dir / "host_booth.mp4", cfg
+    )
+    final_mp4 = out_dir / "final_short.mp4"
+    chapter_composer.compose_chapter_short(
+        source_path, ch_slice, host_mp4, full_wav, ass_path,
+        rights_rec, script.genre, final_mp4, work_dir, cfg,
+    )
+    return final_mp4
 
 
 @app.command(name="build-calendar")

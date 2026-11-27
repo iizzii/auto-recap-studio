@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/chapter_composer.py
+# hypothesis_version: 6.141.1
+
+[-16.0, -14.0, -1.0, 1.45, 2.0, 1080, 1920, '+faststart', '-ac', '-ar', '-b:a', '-c:a', '-filter_complex', '-i', '-map', '-movflags', '-pix_fmt', '-r', '-shortest', '-ss', '-t', '-vn', '-y', '/', '192k', '2', '2:a:0', '30', '48000', ':', '[out]', '\\', '\\:', 'aac', 'audio', 'chapter_commentary', 'codec_type', 'copy', 'ffmpeg', 'height', 'streams', 'target_lufs', 'true_peak_db', 'video', 'width', 'yuv420p']

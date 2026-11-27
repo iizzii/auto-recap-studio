@@ -1,3 +1,28 @@
+pipeline:
+  default_mode: chapter_commentary
+
+chapter_commentary:
+  target_chapter_sec: 98.0
+  min_chapter_sec: 65.0
+  max_chapter_sec: 125.0
+  contact_sheet_interval_sec: 3.0
+  source_audio_ducked_db: -16
+  bgm_fallback_db: -15
+  min_gap_between_lines_sec: 0.35
+  max_line_speedup: 1.12
+
+host:
+  enabled: true
+  name: "Kiko"
+  sprites_dir: "assets/host/sprites"
+  booths_dir: "assets/host/booths"
+  fps: 30
+  rms_open_threshold: 0.085
+  rms_half_threshold: 0.028
+  blink_interval_sec: [2.8, 4.6]
+  blink_duration_ms: 120
+  character_x_ratio: 0.38
+
 runtime:
   fps: 30
   width: 1080

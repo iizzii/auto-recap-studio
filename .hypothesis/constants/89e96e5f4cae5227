@@ -1,0 +1,4 @@
+# file: /Users/xer0/.gemini/antigravity/scratch/recap_pipeline/pipeline/host_animator.py
+# hypothesis_version: 6.141.1
+
+[0.028, 0.085, 0.38, 0.5, 2.0, 2.6, 2.8, 3.5, 4.6, 32768.0, 690, 1080, '*.png', '-f', '-i', '-pix_fmt', '-r', '-s', '-y', '1080x690', 'RGB', 'RGBA', 'assets/host/booths', 'assets/host/sprites', 'blink', 'booths_dir', 'character_x_ratio', 'closed', 'comedy.png', 'emotion', 'end_sec', 'ffmpeg', 'fps', 'half', 'host', 'laughing', 'neutral', 'neutral_closed', 'open', 'pause_emotion', 'pipe:0', 'rawvideo', 'rb', 'rgb24', 'rms_half_threshold', 'rms_open_threshold', 'sprites_dir', 'start_sec', 'yuv420p']

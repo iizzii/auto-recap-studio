@@ -1281,11 +1281,23 @@ def synthesize_timed_commentary(
             )
         else:
             t_exp = max(cursor_exp, t_raw + cumulative_shift)
+            hard_end_cap = (
+                chapter_duration - (0.35 if (last_is_freeze and not is_last) else 0.30)
+            ) + cumulative_shift
+            if t_exp + (dur / max_speed) > hard_end_cap:
+                log.warning(
+                    "Skipping late overflowing non-freeze cue %d at %.2fs (cap=%.2fs) to protect clean ending.",
+                    cue.cue_id,
+                    t_exp,
+                    hard_end_cap,
+                )
+                continue
+
             if idx + 1 < len(synth_cues):
                 next_raw = float(synth_cues[idx + 1][0].start_sec)
-                next_exp = next_raw + cumulative_shift
+                next_exp = min(hard_end_cap + min_gap, next_raw + cumulative_shift)
             else:
-                next_exp = chapter_duration + cumulative_shift
+                next_exp = hard_end_cap + min_gap
             avail = max(0.5, (next_exp - t_exp) - min_gap)
 
             if dur > avail:

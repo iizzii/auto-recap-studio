@@ -33,7 +33,7 @@ STRICT REEL-READY COMMENTARY RULES:
    - Let the movie's final cliffhanger dialogue/reveal play out 100% completely FIRST, then freeze the final frame at `CHAPTER_DURATION_SEC - 0.15` while Kiko drops a punchy Part 2 / Part 3 cliffhanger tease (e.g., "Oh no, they are officially cooked—Part 2 is live right now!"). NEVER fire the Part 2/3 CTA 5–10 seconds early!
    - If `PART_NUMBER == TOTAL_PARTS`: close right at the final twist payoff with a killer reaction + quick comment-bait question!
 6. ACTIVE PRESENCE (42%–54% OF CHAPTER DURATION):
-   - Write 12 to 16 crisp, punchy cues spread across the whole chapter hitting `TARGET_TOTAL_SPOKEN_WORDS` (typically ~155–195 words total, ~10–15 words per cue).
+   - Write 13 to 16 crisp, punchy cues spread across the whole chapter hitting `TARGET_TOTAL_SPOKEN_WORDS` (typically ~165–205 words total, **12–15 words per cue** — two snappy clauses per reaction!).
    - Cue 1 MUST start at `start_sec: 0.0` (if `0.0s` has `BUSY_DIALOGUE`, set Cue 1 `"freeze_frame": true` so Kiko's instant 00:00 hook plays cleanly on a crisp opening freeze before the character speaks!).
    - If `PART_NUMBER >= 2`, bridge smoothly from `PREVIOUS_CLIFFHANGER` in Cue 1—never re-introduce known characters as strangers.
 7. DYNAMIC EMPHASIS WORD & EMOTION DIVERSITY:
@@ -46,8 +46,8 @@ STRICT REEL-READY COMMENTARY RULES:
 Return ONLY valid JSON matching ChapterCommentaryScript:
 {
   "genre": "horror_comedy",
-  "voice_name": "en-US-AndrewMultilingualNeural",
-  "voice_rate": "+10%",
+  "voice_name": "en-US-ChristopherNeural",
+  "voice_rate": "+7%",
   "chapter_title": "...",
   "top_headline": "...",
   "cliffhanger_summary": "...",

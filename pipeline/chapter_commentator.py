@@ -49,6 +49,7 @@ _GENRE_VOICES: dict[str, tuple[str, str]] = {
 }
 
 _RESOLVED_VOICE_CACHE: str | None = None
+_EXHAUSTED_KEY_MODELS: set[tuple[str, str]] = set()
 
 PLACEHOLDER_REGEX = re.compile(r"watch\s+what\s+happens\s+right\s+here\s+in\s+scene\s+\d+", re.IGNORECASE)
 
@@ -197,87 +198,100 @@ def call_gemini_structured(
     backoff_delays = (4.0, 10.0, 22.0)
     errors_seen: list[str] = []
 
-    for key_lbl, client in clients:
-        uploaded_file: Any = None
-        try:
-            if video_path is not None and video_path.exists():
-                for up_attempt in range(3):
+    # Try primary model across ALL unexhausted API keys BEFORE degrading to fallback models
+    fallback_models = [m for m in models_to_try if m != primary]
+    model_batches = [[primary]] + ([fallback_models] if fallback_models else [])
+
+    for model_batch in model_batches:
+        for key_lbl, client in clients:
+            avail_models = [m for m in model_batch if (key_lbl, m) not in _EXHAUSTED_KEY_MODELS]
+            if not avail_models:
+                continue
+            uploaded_file: Any = None
+            try:
+                if video_path is not None and video_path.exists():
+                    for up_attempt in range(3):
+                        try:
+                            uploaded_file = _upload_and_wait_active(client, video_path)
+                            break
+                        except Exception as up_exc:
+                            errors_seen.append(f"key={key_lbl} upload_attempt={up_attempt + 1}/3 detail={str(up_exc)[:220]}")
+                            if up_attempt < 2:
+                                time.sleep(3.0 * (up_attempt + 1))
+                    if uploaded_file is None:
+                        continue
+                    contents: list[Any] = [uploaded_file, prompt]
+                else:
+                    contents = [prompt, *image_parts]
+
+                for model_name in avail_models:
+                    for attempt in range(4):  # 1 initial + 3 retries
+                        try:
+                            media_desc = f"video={video_path.name}" if uploaded_file is not None else f"images={len(image_parts)}"
+                            log.info(
+                                "%s: calling Gemini model=%s (%s, attempt %d/4, %s)",
+                                label,
+                                model_name,
+                                key_lbl,
+                                attempt + 1,
+                                media_desc,
+                            )
+                            resp = client.models.generate_content(
+                                model=model_name,
+                                contents=contents,
+                                config=types.GenerateContentConfig(
+                                    temperature=temperature,
+                                    response_mime_type="application/json",
+                                    response_schema=wire_schema,
+                                ),
+                            )
+                            raw_text = (resp.text or "").strip()
+                            if not raw_text:
+                                raise RuntimeError(f"Empty response text from model={model_name}")
+                            return json.loads(_strip_json_fences(raw_text))
+                        except Exception as exc:
+                            status = _extract_status_code(exc)
+                            snippet = str(exc).replace("\n", " ")[:280]
+                            err_line = f"key={key_lbl} model={model_name} status={status} attempt={attempt + 1}/4 detail={snippet}"
+                            errors_seen.append(err_line)
+
+                            if status == "404" or "NOT_FOUND" in str(exc):
+                                _EXHAUSTED_KEY_MODELS.add((key_lbl, model_name))
+                                log.warning("%s: %s -> moving to next model", label, err_line)
+                                break
+
+                            low_exc = str(exc).lower()
+                            if status == "429" and ("limit: 0" in low_exc or "perday" in low_exc or "daily" in low_exc or "quota" in low_exc):
+                                _EXHAUSTED_KEY_MODELS.add((key_lbl, model_name))
+                                log.warning("%s: daily quota/429 on %s/%s -> marking exhausted and rotating", label, key_lbl, model_name)
+                                break
+                            if status == "429" and attempt >= 1:
+                                log.warning("%s: 429 on %s/%s -> rotating to next model/key", label, key_lbl, model_name)
+                                break
+
+                            if (status in {"503", "504"} or "DEADLINE_EXCEEDED" in str(exc).upper() or "UNAVAILABLE" in str(exc).upper()) and attempt >= 1:
+                                log.warning("%s: persistent %s on %s/%s -> rotating to next model/key", label, status, key_lbl, model_name)
+                                break
+
+                            is_retryable = status in {"429", "500", "502", "503", "504"} or any(
+                                tok in str(exc).upper()
+                                for tok in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMED OUT", "JSON")
+                            )
+                            if is_retryable and attempt < 3:
+                                delay = backoff_delays[attempt] + random.uniform(0.0, 1.5)
+                                log.warning("%s: retryable error (%s); sleeping %.1fs", label, err_line, delay)
+                                time.sleep(delay)
+                                continue
+
+                            log.error("%s: non-retryable or exhausted on %s", label, err_line)
+                            break
+            finally:
+                if uploaded_file is not None:
                     try:
-                        uploaded_file = _upload_and_wait_active(client, video_path)
-                        break
-                    except Exception as up_exc:
-                        errors_seen.append(f"key={key_lbl} upload_attempt={up_attempt + 1}/3 detail={str(up_exc)[:220]}")
-                        if up_attempt < 2:
-                            time.sleep(3.0 * (up_attempt + 1))
-                if uploaded_file is None:
-                    continue
-                contents: list[Any] = [uploaded_file, prompt]
-            else:
-                contents = [prompt, *image_parts]
-
-            for model_name in models_to_try:
-                for attempt in range(4):  # 1 initial + 3 retries
-                    try:
-                        media_desc = f"video={video_path.name}" if uploaded_file is not None else f"images={len(image_parts)}"
-                        log.info(
-                            "%s: calling Gemini model=%s (%s, attempt %d/4, %s)",
-                            label,
-                            model_name,
-                            key_lbl,
-                            attempt + 1,
-                            media_desc,
-                        )
-                        resp = client.models.generate_content(
-                            model=model_name,
-                            contents=contents,
-                            config=types.GenerateContentConfig(
-                                temperature=temperature,
-                                response_mime_type="application/json",
-                                response_schema=wire_schema,
-                            ),
-                        )
-                        raw_text = (resp.text or "").strip()
-                        if not raw_text:
-                            raise RuntimeError(f"Empty response text from model={model_name}")
-                        return json.loads(_strip_json_fences(raw_text))
-                    except Exception as exc:
-                        status = _extract_status_code(exc)
-                        snippet = str(exc).replace("\n", " ")[:280]
-                        err_line = f"key={key_lbl} model={model_name} status={status} attempt={attempt + 1}/4 detail={snippet}"
-                        errors_seen.append(err_line)
-
-                        if status == "404" or "NOT_FOUND" in str(exc):
-                            log.warning("%s: %s -> moving to next model", label, err_line)
-                            break
-
-                        low_exc = str(exc).lower()
-                        if status == "429" and ("limit: 0" in low_exc or "perday" in low_exc or attempt >= 1):
-                            log.warning("%s: quota/429 on %s/%s -> rotating to next model/key", label, key_lbl, model_name)
-                            break
-
-                        if (status in {"503", "504"} or "DEADLINE_EXCEEDED" in str(exc).upper() or "UNAVAILABLE" in str(exc).upper()) and attempt >= 1:
-                            log.warning("%s: persistent %s on %s/%s -> rotating to next model/key", label, status, key_lbl, model_name)
-                            break
-
-                        is_retryable = status in {"429", "500", "502", "503", "504"} or any(
-                            tok in str(exc).upper()
-                            for tok in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMED OUT", "JSON")
-                        )
-                        if is_retryable and attempt < 3:
-                            delay = backoff_delays[attempt] + random.uniform(0.0, 1.5)
-                            log.warning("%s: retryable error (%s); sleeping %.1fs", label, err_line, delay)
-                            time.sleep(delay)
-                            continue
-
-                        log.error("%s: non-retryable or exhausted on %s", label, err_line)
-                        break
-        finally:
-            if uploaded_file is not None:
-                try:
-                    client.files.delete(name=uploaded_file.name)
-                    log.info("Deleted temporary Gemini uploaded file %s", uploaded_file.name)
-                except Exception as del_exc:
-                    log.warning("Failed to delete Gemini uploaded file %s: %s", uploaded_file.name, del_exc)
+                        client.files.delete(name=uploaded_file.name)
+                        log.info("Deleted temporary Gemini uploaded file %s", uploaded_file.name)
+                    except Exception as del_exc:
+                        log.warning("Failed to delete Gemini uploaded file %s: %s", uploaded_file.name, del_exc)
 
     summary = " | ".join(errors_seen[-4:])
     raise RuntimeError(
@@ -565,19 +579,21 @@ def validate_chapter_commentary(
             )
 
         total_words = sum(len(c.text.split()) for c in cues)
-        est_talk = sum(max(1.0, len(c.text.split()) / 3.85) for c in cues)
+        est_talk = sum(max(1.0, len(c.text.split()) / 3.70) for c in cues)
         est_freeze = sum(min(2.8, max(1.4, c.freeze_duration_sec)) for c in freeze_cues)
         est_total = max(1.0, chapter_duration_sec + est_freeze)
         est_share = est_talk / est_total
-        if est_share < 0.39:
-            needed_words = round(0.45 * est_total * 3.85)
+        if est_share < 0.38:
+            needed_words = round(0.46 * est_total * 3.70)
+            deficit = max(25, needed_words - total_words)
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<39%); "
-                f"expand to ~{needed_words} total words across 12-15 punchy cues (11-14 words each)."
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<38%); "
+                f"CRITICAL: ADD AT LEAST {deficit} MORE WORDS to reach >= {needed_words} total words! "
+                "Write 14-16 cues and make EVERY SINGLE CUE 12-16 words long (two punchy clauses each)."
             )
-        elif est_share > 0.56:
+        elif est_share > 0.58:
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>56%); "
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>58%); "
                 "tighten cue lengths slightly so the movie breathes."
             )
 
@@ -705,7 +721,7 @@ def generate_chapter_commentary(
 
     timeline_block = dialogue_timeline.strip() or subtitles_text.strip() or "(Mostly visual / non-verbal audio)"
     headline_str = top_headline or chapter_slice.top_headline or ""
-    target_words = max(130, round(0.45 * (dur + 6.0) * 3.85))
+    target_words = max(145, round(0.47 * (dur + 7.0) * 3.70))
     cta_rule = (
         f"MANDATORY ENDING CTA TIMESTAMP: {dur - 0.15:.2f}s (freeze_frame=true, freeze_duration_sec=2.2) — AFTER final dialogue!"
         if chapter_slice.part_number < chapter_slice.total_parts
@@ -718,7 +734,7 @@ def generate_chapter_commentary(
         f"TOP_HEADLINE: {headline_str}\n"
         f"CHAPTER_DURATION_SEC: {dur:.2f}s\n"
         f"{cta_rule}\n"
-        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 12-15 cues (to hit 43-53% active time)\n"
+        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 13-16 cues (12-15 words each to hit 44-54% active time)\n"
         f"PREVIOUS_CLIFFHANGER: {previous_cliffhanger or 'None (Part 1 opening)'}\n"
         f"NEXT_CLIFFHANGER_GOAL: {next_cliffhanger_goal or 'Deliver a sharp final twist/payoff'}\n"
         f"OPEN_GAPS (best windows for freeze_frame=false cues):\n{gaps_str or '  (see timeline below)'}\n\n"
@@ -729,7 +745,7 @@ def generate_chapter_commentary(
     last_errors: list[str] = []
     prev_json = ""
 
-    for attempt in range(1, 5):
+    for attempt in range(1, 6):
         feedback = ""
         if last_errors:
             feedback = (
@@ -808,13 +824,13 @@ def generate_chapter_commentary(
             return script
         last_errors = errs
         log.warning(
-            "Chapter commentary attempt %d/4 failed validation: %s",
+            "Chapter commentary attempt %d/5 failed validation: %s",
             attempt,
             errs,
         )
 
     raise RuntimeError(
-        f"Chapter commentary failed quality validation after 4 attempts: {last_errors}"
+        f"Chapter commentary failed quality validation after 5 attempts: {last_errors}"
     )
 
 

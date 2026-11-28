@@ -376,19 +376,62 @@ def resolve_dialogue_collisions_and_cta(
                 c.freeze_frame = False
                 c.freeze_duration_sec = 0.0
 
-    # 2. Dialogue-collision resolver on all non-freeze cues (strictly respecting freeze cap)
+    # 2. Dialogue-collision resolver on all non-freeze cues (strictly respecting freeze cap & cue intervals)
     if busy:
-        used_starts: list[float] = []
+        # Derive open_gaps directly from busy_intervals if caller passed sparse/empty open_gaps
+        eff_gaps: list[tuple[float, float]] = []
+        if gaps:
+            eff_gaps = [(float(g.get("start_sec", 0.0)), float(g.get("end_sec", 0.0))) for g in gaps]
+        else:
+            cur_g = 0.0
+            for bs, be in busy:
+                if bs - cur_g >= 0.7:
+                    eff_gaps.append((cur_g, bs))
+                cur_g = max(cur_g, be)
+            if chapter_duration - cur_g >= 0.7:
+                eff_gaps.append((cur_g, chapter_duration))
+
+        used_intervals: list[tuple[float, float]] = []
         freeze_times: list[float] = [c.start_sec for c in cues if c.freeze_frame]
+
+        def _find_clean_gap_slot(target_t: float, est_d: float, max_dist: float) -> float | None:
+            best_c: float | None = None
+            best_d = 9999.0
+            for gs, ge in eff_gaps:
+                if ge - gs < 0.7:
+                    continue
+                cands: list[float] = [
+                    gs + 0.05,
+                    max(gs + 0.05, ge - est_d - 0.05),
+                    min(ge - 0.5, max(gs + 0.05, target_t)),
+                ]
+                t_scan = gs + 0.05
+                while t_scan <= ge - 0.6:
+                    cands.append(t_scan)
+                    t_scan += 1.2
+                for cand in cands:
+                    if cand < 0.0 or cand > chapter_duration - 1.5:
+                        continue
+                    dist = abs(cand - target_t)
+                    if dist > max_dist or dist >= best_d:
+                        continue
+                    if any(cand < ue and (cand + est_d + 0.35) > us for us, ue in used_intervals):
+                        continue
+                    if compute_busy_overlap(cand, cand + est_d, busy) <= 0.30:
+                        best_d = dist
+                        best_c = cand
+            return best_c
+
         for idx, cue in enumerate(cues):
-            est_dur = max(1.1, len(cue.text.split()) / 3.85)
+            est_dur = max(1.1, len(cue.text.split()) / 3.70)
             if cue.freeze_frame:
-                used_starts.append(cue.start_sec)
+                used_intervals.append((cue.start_sec, cue.start_sec + 0.8))
                 continue
 
             overlap = compute_busy_overlap(cue.start_sec, cue.start_sec + est_dur, busy)
-            if overlap <= 0.35:
-                used_starts.append(cue.start_sec)
+            crashes_prev = any(cue.start_sec < ue and (cue.start_sec + est_dur + 0.30) > us for us, ue in used_intervals)
+            if overlap <= 0.30 and not crashes_prev:
+                used_intervals.append((cue.start_sec, cue.start_sec + est_dur + 0.35))
                 continue
 
             # Opening hook colliding with 0.0s dialogue -> promote to 00:00 opening freeze if budget permits
@@ -398,48 +441,39 @@ def resolve_dialogue_collisions_and_cta(
                 cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
                 non_cta_freezes += 1
                 freeze_times.append(cue.start_sec)
-                used_starts.append(cue.start_sec)
+                used_intervals.append((cue.start_sec, cue.start_sec + 0.8))
                 continue
 
-            # Try nudging into the nearest clean OPEN_GAP within ±10.0s (strongly preferring closest)
-            best_cand: float | None = None
-            best_dist = 999.0
-            for g in gaps:
-                gs = float(g.get("start_sec", 0.0))
-                ge = float(g.get("end_sec", 0.0))
-                if ge - gs < 0.7:
-                    continue
-                for cand in (gs + 0.05, max(gs + 0.05, ge - est_dur - 0.05), min(ge - 0.5, max(gs + 0.05, cue.start_sec))):
-                    if cand < 0.0 or cand > chapter_duration - 1.5:
-                        continue
-                    dist = abs(cand - cue.start_sec)
-                    if dist > 10.0:
-                        continue
-                    if any(abs(cand - u) < 1.8 for u in used_starts):
-                        continue
-                    cand_ov = compute_busy_overlap(cand, cand + est_dur, busy)
-                    if cand_ov <= 0.30 and dist < best_dist:
-                        best_dist = dist
-                        best_cand = cand
-
+            # Pass 1: nearest unoccupied OPEN_GAP slot within ±10.0s
+            best_cand = _find_clean_gap_slot(cue.start_sec, est_dur, max_dist=10.0)
             if best_cand is not None:
                 cue.start_sec = round(best_cand, 2)
+                used_intervals.append((cue.start_sec, cue.start_sec + est_dur + 0.35))
+                continue
+
+            # Pass 2: promote to crisp post-line freeze roast if freeze budget permits
+            ov_end = cue.start_sec
+            for bs, be in busy:
+                if be > cue.start_sec and bs < cue.start_sec + est_dur:
+                    ov_end = max(ov_end, be)
+            target_t = round(max(0.2, min(chapter_duration - 1.5, ov_end + 0.06)), 2)
+            if non_cta_freezes < max_non_cta_freezes and all(abs(target_t - ft) >= 6.0 for ft in freeze_times):
+                cue.start_sec = target_t
+                cue.freeze_frame = True
+                cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
+                non_cta_freezes += 1
+                freeze_times.append(target_t)
+                used_intervals.append((cue.start_sec, cue.start_sec + 0.8))
+                continue
+
+            # Pass 3: freeze budget full -> find nearest unoccupied OPEN_GAP anywhere in chapter
+            any_cand = _find_clean_gap_slot(cue.start_sec, est_dur, max_dist=chapter_duration)
+            if any_cand is not None:
+                cue.start_sec = round(any_cand, 2)
+                used_intervals.append((cue.start_sec, cue.start_sec + est_dur + 0.35))
             else:
-                ov_end = cue.start_sec
-                for bs, be in busy:
-                    if be > cue.start_sec and bs < cue.start_sec + est_dur:
-                        ov_end = max(ov_end, be)
-                target_t = round(max(0.2, min(chapter_duration - 1.5, ov_end + 0.06)), 2)
-                if non_cta_freezes < max_non_cta_freezes and all(abs(target_t - ft) >= 7.0 for ft in freeze_times):
-                    cue.start_sec = target_t
-                    cue.freeze_frame = True
-                    cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
-                    non_cta_freezes += 1
-                    freeze_times.append(target_t)
-                else:
-                    # Freeze budget reached: place right after the spoken line ends (no extra freeze!)
-                    cue.start_sec = target_t
-            used_starts.append(cue.start_sec)
+                cue.start_sec = target_t
+                used_intervals.append((cue.start_sec, cue.start_sec + est_dur + 0.35))
 
     if cta_cue is not None:
         cues.append(cta_cue)
@@ -1036,7 +1070,7 @@ def synthesize_timed_commentary(
         want_freeze = (
             cue.freeze_frame
             and chapter_duration >= 10.0
-            and (is_last or (len(freeze_events) < max_before_last and (t_raw - last_freeze_raw) >= 6.0))
+            and (is_last or (len(freeze_events) < max_before_last and (t_raw - last_freeze_raw) >= 4.0))
         )
         skip_cue = False
 
@@ -1063,7 +1097,7 @@ def synthesize_timed_commentary(
                         if bs >= search_t + dur:
                             break
                         cand_t = be + 0.05
-                        if cand_t - raw_eff_start > 9.0 or cand_t + (dur / max_speed) > chapter_duration - 0.5:
+                        if cand_t - raw_eff_start > 16.0 or cand_t + (dur / max_speed) > chapter_duration - 0.5:
                             break
                         if compute_busy_overlap(cand_t, cand_t + dur, busy) <= 0.35:
                             t_raw = round(cand_t, 3)
@@ -1082,7 +1116,7 @@ def synthesize_timed_commentary(
                     if (
                         chapter_duration >= 10.0
                         and len(freeze_events) < max_before_last
-                        and (raw_eff_start - last_freeze_raw) >= 6.0
+                        and (raw_eff_start - last_freeze_raw) >= 4.0
                     ):
                         want_freeze = True
                         t_raw = round(min(chapter_duration - 0.15, raw_eff_start), 3)

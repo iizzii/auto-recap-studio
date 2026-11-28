@@ -1050,7 +1050,7 @@ def synthesize_timed_commentary(
         )
         synth_cues.append((cue, raw_wav, dur))
 
-    # 2. Compute freeze-frame timeline expansion & collision-free exact placement (max 4 freezes total)
+    # 2. Compute freeze-frame timeline expansion & collision-free exact placement (soft cap 4, hard cap 6)
     cumulative_shift = 0.0
     cursor_exp = 0.0
     last_freeze_raw = -999.0
@@ -1058,9 +1058,16 @@ def synthesize_timed_commentary(
     freeze_events: list[dict[str, Any]] = []
     max_dialogue_overlap = 0.0
 
-    max_total_freezes = 4
+    soft_max_freezes = 4
+    hard_max_freezes = 6
     last_is_freeze = bool(synth_cues and synth_cues[-1][0].freeze_frame)
-    max_before_last = max(1, max_total_freezes - (1 if last_is_freeze else 0))
+    soft_before_last = max(1, soft_max_freezes - (1 if last_is_freeze else 0))
+    hard_before_last = max(2, hard_max_freezes - (1 if last_is_freeze else 0))
+
+    placed_talk_sec = 0.0
+    rem_talk_suffix: list[float] = [0.0] * (len(synth_cues) + 1)
+    for k in range(len(synth_cues) - 1, -1, -1):
+        rem_talk_suffix[k] = rem_talk_suffix[k + 1] + synth_cues[k][2]
 
     for idx, (cue, wav_path, dur) in enumerate(synth_cues):
         is_last = idx == len(synth_cues) - 1
@@ -1070,7 +1077,7 @@ def synthesize_timed_commentary(
         want_freeze = (
             cue.freeze_frame
             and chapter_duration >= 10.0
-            and (is_last or (len(freeze_events) < max_before_last and (t_raw - last_freeze_raw) >= 4.0))
+            and (is_last or (len(freeze_events) < soft_before_last and (t_raw - last_freeze_raw) >= 4.0))
         )
         skip_cue = False
 
@@ -1087,6 +1094,30 @@ def synthesize_timed_commentary(
                         wav_path, dur = _speed_up_wav(wav_path, test_spd, sped_wav, sr=sr, mock_tts=mock_tts)
                         fixed = True
                         break
+
+                # 1b. Try pulling slightly earlier (between cursor_exp and raw_eff_start) so cue finishes BEFORE dialogue
+                if not fixed:
+                    min_raw = max(0.0, cursor_exp - cumulative_shift)
+                    lo_raw = max(min_raw, raw_eff_start - 5.0)
+                    if lo_raw < raw_eff_start - 0.15:
+                        first_bs = next((bs for bs, be in busy if be > raw_eff_start and bs < raw_eff_start + dur), None)
+                        pull_cands = [lo_raw]
+                        if first_bs is not None:
+                            pull_cands.insert(0, max(lo_raw, first_bs - dur - 0.05))
+                            pull_cands.append(max(lo_raw, first_bs - (dur / max_speed) - 0.05))
+                        for cand_e in pull_cands:
+                            if cand_e < min_raw or cand_e >= raw_eff_start:
+                                continue
+                            if compute_busy_overlap(cand_e, cand_e + dur, busy) <= 0.35:
+                                t_raw = round(cand_e, 3)
+                                fixed = True
+                                break
+                            if compute_busy_overlap(cand_e, cand_e + (dur / max_speed), busy) <= 0.35:
+                                sped_wav = out_dir / f"cue_{cue.cue_id:03d}_pullfit.wav"
+                                wav_path, dur = _speed_up_wav(wav_path, max_speed, sped_wav, sr=sr, mock_tts=mock_tts)
+                                t_raw = round(cand_e, 3)
+                                fixed = True
+                                break
 
                 # 2. Else wait cleanly until right after the overlapping dialogue finishes (no extra freeze!)
                 if not fixed:
@@ -1111,22 +1142,27 @@ def synthesize_timed_commentary(
                             break
                         search_t = cand_t
 
-                # 3. Else promote to freeze roast ONLY if freeze budget permits
+                # 3. Else promote to freeze roast (soft cap 4, or hard cap 6 if skipping risks <44% commentary share)
                 if not fixed:
+                    proj_if_skipped = (placed_talk_sec + rem_talk_suffix[idx + 1]) / max(
+                        1.0, chapter_duration + cumulative_shift + 2.2
+                    )
+                    allowed_before_last = hard_before_last if proj_if_skipped < 0.44 else soft_before_last
                     if (
                         chapter_duration >= 10.0
-                        and len(freeze_events) < max_before_last
-                        and (raw_eff_start - last_freeze_raw) >= 4.0
+                        and len(freeze_events) < allowed_before_last
+                        and (raw_eff_start - last_freeze_raw) >= 3.5
                     ):
                         want_freeze = True
                         t_raw = round(min(chapter_duration - 0.15, raw_eff_start), 3)
                     else:
                         log.warning(
-                            "Skipping colliding cue %d at %.2fs (freeze budget %d/%d full, overlap=%.2fs)",
+                            "Skipping colliding cue %d at %.2fs (freeze budget %d/%d, proj_share=%.1f%%, overlap=%.2fs)",
                             cue.cue_id,
                             raw_eff_start,
                             len(freeze_events),
-                            max_total_freezes,
+                            allowed_before_last + (1 if last_is_freeze else 0),
+                            proj_if_skipped * 100.0,
                             ov,
                         )
                         skip_cue = True
@@ -1174,6 +1210,7 @@ def synthesize_timed_commentary(
             cumulative_shift = round(cumulative_shift + freeze_dur, 6)
             last_freeze_raw = t_raw
             cursor_exp = t_exp + freeze_dur + min_gap
+            placed_talk_sec += max(0.0, voice_end - voice_start)
 
             placed_entries.append(
                 (
@@ -1211,6 +1248,7 @@ def synthesize_timed_commentary(
             voice_start = round(t_exp, 3)
             voice_end = round(voice_start + dur, 3)
             cursor_exp = voice_end + min_gap
+            placed_talk_sec += max(0.0, voice_end - voice_start)
 
             raw_eff_s = max(0.0, voice_start - cumulative_shift)
             ov = compute_busy_overlap(raw_eff_s, raw_eff_s + dur, busy)

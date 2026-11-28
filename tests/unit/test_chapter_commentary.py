@@ -540,5 +540,5 @@ def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -
         resolved, 72.0, tmp_path, {}, mock_tts=True, busy_intervals=busy
     )
     exp = json.loads((tmp_path / "03_timeline_expansion.json").read_text(encoding="utf-8"))
-    assert exp["freeze_count"] <= 4
+    assert exp["freeze_count"] <= 6
     assert exp["max_dialogue_overlap_sec"] <= 0.45

@@ -315,3 +315,191 @@ def test_chapter_qa_gate_passes_valid_and_rejects_bad(tmp_path: Path) -> None:
                 tmp_path / "final.mp4", script, timings, exp_meta, tmp_path, {}, strict=True, mock_llm=False
             )
         assert exc_info.value.code == 7
+
+
+def test_auto_bleep_profanity_preserves_length_and_bleeps_exact_span(tmp_path: Path) -> None:
+    import wave
+
+    sr = 48000
+    n_frames = sr * 2  # 2.0s stereo WAV
+    src_wav = tmp_path / "movie.wav"
+    silence = np.zeros((n_frames, 2), dtype=np.int16)
+    with wave.open(str(src_wav), "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(silence.tobytes())
+
+    words = [
+        {"word": "shiitake", "start": 0.2, "end": 0.55},  # Must NOT false-positive on "shit"!
+        {"word": "bitches!", "start": 1.0, "end": 1.4},
+    ]
+    out_wav = tmp_path / "movie_bleeped.wav"
+    _, bleeped = chapter_composer.auto_bleep_profanity(src_wav, words, out_wav)
+
+    assert len(bleeped) == 1
+    assert bleeped[0]["word"] == "bitches!"
+    with wave.open(str(out_wav), "rb") as wf:
+        assert wf.getnframes() == n_frames
+        assert wf.getnchannels() == 2
+        assert wf.getframerate() == sr
+        pcm = np.frombuffer(wf.readframes(n_frames), dtype=np.int16).astype(np.float32).reshape(-1, 2) / 32768.0
+
+    # Non-profanity region stays silent; profanity region carries strong 1000 Hz bleep
+    assert float(np.sqrt(np.mean(pcm[int(0.2 * sr) : int(0.55 * sr)] ** 2))) < 1e-5
+    assert float(np.sqrt(np.mean(pcm[int(1.05 * sr) : int(1.35 * sr)] ** 2))) > 0.10
+
+
+def test_shift_words_for_freezes() -> None:
+    words = [
+        {"word": "hey", "start": 5.0, "end": 5.3},
+        {"word": "bitches", "start": 20.0, "end": 20.4},
+    ]
+    freezes = [{"raw_time_sec": 10.0, "freeze_dur_sec": 2.2}]
+    shifted = chapter_composer.shift_words_for_freezes(words, freezes)
+    assert shifted[0]["start"] == 5.0
+    assert shifted[1]["start"] == 22.2
+    assert shifted[1]["end"] == 22.6
+
+
+def test_dialogue_collision_resolver_and_exact_end_cta() -> None:
+    script = ChapterCommentaryScript(
+        genre="horror_comedy",
+        voice_name="en-US-AndrewMultilingualNeural",
+        voice_rate="+10%",
+        chapter_title="Sprite Fright Part 1",
+        top_headline="THEY WOKE UP THE FOREST",
+        cues=[
+            CommentaryCue(
+                cue_id=1, start_sec=0.0, max_duration_sec=2.5,
+                text="Zero survival instincts on this camping trip already!",
+                emphasis_word="SURVIVAL", emotion="smug", pause_emotion="neutral",
+            ),
+            CommentaryCue(
+                cue_id=2, start_sec=16.0, max_duration_sec=2.8,
+                text="Bro really dropped his snack wrapper right on a sacred shrine.",
+                emphasis_word="SHRINE", emotion="facepalm", pause_emotion="shocked",
+                freeze_frame=False,
+            ),
+            CommentaryCue(
+                cue_id=3, start_sec=71.0, max_duration_sec=2.5,
+                text="Oh they are cooked—Part 2 is live right now!",
+                emphasis_word="COOKED", emotion="hyped", pause_emotion="shocked",
+                freeze_frame=False,
+            ),
+        ],
+    )
+    busy = [(15.0, 22.0), (73.0, 79.4)]
+    open_gaps = [
+        {"start_sec": 0.0, "end_sec": 15.0, "duration_sec": 15.0},
+        {"start_sec": 22.0, "end_sec": 73.0, "duration_sec": 51.0},
+    ]
+    resolved = chapter_commentator.resolve_dialogue_collisions_and_cta(
+        script, chapter_duration=80.0, busy_intervals=busy, open_gaps=open_gaps, part_number=1, total_parts=3
+    )
+    # Cue 2 either moved cleanly outside [15, 22] or promoted to freeze_frame=True
+    c2 = resolved.cues[1]
+    assert c2.freeze_frame or chapter_commentator.compute_busy_overlap(c2.start_sec, c2.start_sec + 2.5, busy) <= 0.35
+    # Final CTA forced onto exact end of clip (80.0 - 0.15 = 79.85) with freeze_frame=True
+    last = resolved.cues[-1]
+    assert last.start_sec == 79.85
+    assert last.freeze_frame is True
+
+
+def test_clean_1word_pop_captions_strip_periods_and_commas(tmp_path: Path) -> None:
+    from pipeline import caption_engine
+
+    timings = [
+        {
+            "start_sec": 0.0,
+            "end_sec": 2.4,
+            "text": "We left the green woods, stop them. Look! Wait?",
+            "emphasis_word": "STOP",
+            "emotion": "shocked",
+        }
+    ]
+    ass_path = tmp_path / "pop.ass"
+    caption_engine.build_chapter_pop_captions(
+        timings, tmp_path / "missing.wav", ass_path, {}, mock_tts=True, seam_y=784
+    )
+    ass_text = ass_path.read_text(encoding="utf-8")
+    assert qa_gate._find_trailing_punct_caption_tokens(ass_path) == []
+    assert "LOOK!" in ass_text
+    assert "WAIT?" in ass_text
+    assert "THEM." not in ass_text
+    assert "WOODS," not in ass_text
+    # Normal words stay single-word events (not merged into "WE LEFT" or "THE GREEN")
+    assert "WE LEFT" not in ass_text
+    assert "THE GREEN" not in ass_text
+
+
+def test_sprite_normalization_and_flush_vertical_layout() -> None:
+    # Flush CinemaScope layout: 0px black gutter between movie bottom and glowing divider
+    lay = chapter_composer.compute_vertical_layout(1920, 804)
+    assert lay["divider_y"] == lay["movie_y"] + lay["movie_h"]
+    assert lay["booth_h"] == 1920 - lay["divider_y"]
+
+    # Reference sprite normalization eliminates horizontal/vertical drift across emotions
+    ref = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
+    ImageDraw.Draw(ref).rounded_rectangle([160, 120, 480, 640], radius=40, fill=(230, 140, 60, 255))
+
+    shifted = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
+    ImageDraw.Draw(shifted).rounded_rectangle([210, 150, 500, 600], radius=40, fill=(230, 140, 60, 255))
+
+    norm = host_animator.normalize_sprites_to_reference(
+        {"neutral_closed": ref, "facepalm_closed": shifted}, target_size=620
+    )
+    bb_ref = host_animator._opaque_bbox(norm["neutral_closed"])
+    bb_fp = host_animator._opaque_bbox(norm["facepalm_closed"])
+    assert bb_ref is not None and bb_fp is not None
+    # Both grounded flush at exact bottom baseline (620) with matched center & width
+    assert bb_ref[3] == 620 and bb_fp[3] == 620
+    assert abs((bb_ref[2] - bb_ref[0]) - (bb_fp[2] - bb_fp[0])) <= 4
+
+
+def test_hardened_chapter_qa_gate_catches_new_failures(tmp_path: Path) -> None:
+    ch = ChapterSlice(part_number=1, total_parts=3, start_sec=0.0, end_sec=80.0, duration_sec=80.0)
+    script = chapter_commentator.generate_chapter_commentary(
+        tmp_path / "sheet.jpg", ch, "Sprite Fright", {}, mock_llm=True
+    )
+    timings = [
+        {"start_sec": c.start_sec, "end_sec": min(75.0, c.start_sec + 3.0), "emotion": c.emotion, "dialogue_overlap_sec": 0.72, "freeze_frame": False}
+        for c in script.cues
+    ]
+    bad_ass = tmp_path / "bad.ass"
+    bad_ass.write_text("Dialogue: 0,0:00:00.00,0:00:00.50,Default,,0,0,0,,{\\c&HFFFFFF&}THEM.\n", encoding="utf-8")
+
+    probe_ok = {
+        "streams": [
+            {
+                "codec_type": "video", "width": 1080, "height": 1920,
+                "codec_name": "h264", "pix_fmt": "yuv420p", "r_frame_rate": "30/1", "duration": "84.0",
+            },
+            {"codec_type": "audio", "duration": "84.0"},
+        ]
+    }
+    exp_meta = {"active_commentary_sec": 39.0, "commentary_share": 0.464, "freeze_count": 1, "max_dialogue_overlap_sec": 0.72}
+    with (
+        patch("pipeline.ffutil.probe", return_value=probe_ok),
+        patch("pipeline.qa_gate._measure_lufs", return_value=-14.1),
+        patch("pipeline.qa_gate._black_stats", return_value=(0.0, 0.0)),
+    ):
+        rep = qa_gate.run_chapter_qa_gate(
+            tmp_path / "final.mp4",
+            script,
+            timings,
+            exp_meta,
+            tmp_path,
+            {},
+            strict=False,
+            mock_llm=False,
+            part_number=1,
+            total_parts=3,
+            ass_path=bad_ass,
+        )
+        assert rep["passed"] is False
+        joined = " | ".join(rep["failures"]).lower()
+        assert "freeze-frame" in joined
+        assert "busy_dialogue" in joined
+        assert "ending cta" in joined
+        assert "trailing '.' or ','" in joined

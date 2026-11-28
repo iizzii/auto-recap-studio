@@ -13,7 +13,7 @@ chapter_commentary:
   min_gap_between_lines_sec: 0.30
   max_line_speedup: 1.14
   audio_crossfade_sec: 0.12
-  freeze_zoom_end: 1.07
+  freeze_zoom_end: 1.10
   min_commentary_share: 0.35
   max_commentary_share: 0.65
   min_distinct_emotions: 5
@@ -27,6 +27,7 @@ host:
   booth_width: 1080
   booth_height: 970
   sprite_size: 620
+  desk_y_ratio: 0.69
   rms_open_threshold: 0.085
   rms_half_threshold: 0.028
   blink_interval_sec: [2.8, 4.6]
@@ -93,8 +94,8 @@ script:
 
 tts:
   backend: edge_tts
-  voice: en-US-BrianNeural
-  rate: "+12%"
+  voice: en-US-AndrewMultilingualNeural
+  rate: "+10%"
   retries: 4
   backoff_base_sec: 1.5
   trim_silence_db: -45

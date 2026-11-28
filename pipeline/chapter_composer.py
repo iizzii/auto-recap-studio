@@ -1,8 +1,12 @@
-"""Single-pass zero-dead-space 9:16 split-screen composer + freeze-frame expander."""
+"""Single-pass zero-dead-space 9:16 split-screen composer + freeze-frame expander + auto-bleep."""
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+import statistics
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +24,223 @@ _GENRE_ACCENTS: dict[str, tuple[int, int, int]] = {
     "action_scifi": (44, 224, 255),
     "emotional_drama": (255, 184, 92),
 }
+
+PROFANITY_WORDS: frozenset[str] = frozenset(
+    {
+        "fuck",
+        "fuckin",
+        "fucking",
+        "fucked",
+        "fucker",
+        "fuckers",
+        "motherfucker",
+        "motherfucking",
+        "shit",
+        "shitting",
+        "shitty",
+        "bullshit",
+        "bitch",
+        "bitches",
+        "bitching",
+        "bitchy",
+        "asshole",
+        "assholes",
+        "bastard",
+        "bastards",
+        "cunt",
+        "cunts",
+        "dick",
+        "dicks",
+        "shag",
+        "shagged",
+        "shagging",
+        "whore",
+        "whores",
+        "slut",
+        "sluts",
+    }
+)
+
+_PROFANITY_PREFIXES: tuple[str, ...] = ("fuck", "motherfuck", "bitch")
+
+
+def _is_profanity_word(word: str) -> bool:
+    norm = re.sub(r"[^a-z]", "", str(word or "").lower())
+    if not norm:
+        return False
+    if norm in PROFANITY_WORDS:
+        return True
+    return any(norm.startswith(p) for p in _PROFANITY_PREFIXES)
+
+
+def shift_words_for_freezes(
+    chapter_words: list[dict[str, Any]],
+    freeze_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Map raw chapter word timestamps onto the freeze-expanded movie timeline."""
+    if not chapter_words:
+        return []
+    events = sorted(freeze_events or [], key=lambda e: float(e["raw_time_sec"]))
+    shifted: list[dict[str, Any]] = []
+    for w in chapter_words:
+        ws = float(w.get("start", 0.0))
+        we = float(w.get("end", ws))
+        s_shift = sum(float(ev["freeze_dur_sec"]) for ev in events if float(ev["raw_time_sec"]) <= ws + 1e-4)
+        e_shift = sum(float(ev["freeze_dur_sec"]) for ev in events if float(ev["raw_time_sec"]) <= we + 1e-4)
+        shifted.append(
+            {
+                "word": str(w.get("word", "")),
+                "start": round(ws + s_shift, 3),
+                "end": round(max(ws + s_shift + 0.04, we + e_shift), 3),
+            }
+        )
+    return shifted
+
+
+def auto_bleep_profanity(
+    movie_wav_path: Path,
+    chapter_words: list[dict[str, Any]],
+    out_wav_path: Path,
+) -> tuple[Path, list[dict[str, Any]]]:
+    """Replace matched profanity spans in movie WAV with a clean 1000 Hz -14 dBFS bleep.
+
+    Preserves exact WAV sample count, sample rate, sample width, and channel count.
+    """
+    with wave.open(str(movie_wav_path), "rb") as wf:
+        nch = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        sr = wf.getframerate()
+        n_frames = wf.getnframes()
+        raw_bytes = wf.readframes(n_frames)
+
+    if sampwidth != 2 or n_frames == 0:
+        out_wav_path.parent.mkdir(parents=True, exist_ok=True)
+        out_wav_path.write_bytes(movie_wav_path.read_bytes())
+        return out_wav_path, []
+
+    pcm = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    samples = pcm.reshape(-1, max(1, nch)).copy()
+
+    total_dur = n_frames / float(sr)
+    bleeped_words: list[dict[str, Any]] = []
+    # -14 dBFS peak 1000 Hz sine bleep
+    bleep_amp = float(10.0 ** (-14.0 / 20.0))
+    fade_samples_max = max(1, int(round(0.010 * sr)))
+
+    for w in chapter_words or []:
+        raw_word = str(w.get("word", "")).strip()
+        if not _is_profanity_word(raw_word):
+            continue
+        t_start = max(0.0, float(w.get("start", 0.0)) - 0.03)
+        t_end = min(total_dur, float(w.get("end", t_start)) + 0.03)
+        s_idx = max(0, int(round(t_start * sr)))
+        e_idx = min(n_frames, int(round(t_end * sr)))
+        span = e_idx - s_idx
+        if span <= 16:
+            continue
+
+        t = np.arange(span, dtype=np.float32) / float(sr)
+        sine = bleep_amp * np.sin(2.0 * np.pi * 1000.0 * t)
+        fade_n = min(fade_samples_max, span // 4)
+        env = np.ones(span, dtype=np.float32)
+        if fade_n > 0:
+            ramp = np.linspace(0.0, 1.0, fade_n, dtype=np.float32)
+            env[:fade_n] = ramp
+            env[-fade_n:] = ramp[::-1]
+
+        bleep_seg = (sine * env)[:, None]
+        keep_env = (1.0 - env)[:, None]
+        samples[s_idx:e_idx] = samples[s_idx:e_idx] * keep_env + bleep_seg
+        bleeped_words.append(
+            {
+                "word": raw_word,
+                "start_sec": round(t_start, 3),
+                "end_sec": round(t_end, 3),
+            }
+        )
+
+    out_int16 = np.clip(samples.reshape(-1) * 32767.0, -32768, 32767).astype(np.int16)
+    out_wav_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(out_wav_path), "wb") as wf:
+        wf.setnchannels(nch)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(out_int16.tobytes())
+
+    if bleeped_words:
+        log.info("Auto-bleeped %d profanity word(s): %s", len(bleeped_words), bleeped_words)
+    return out_wav_path, bleeped_words
+
+
+def detect_active_crop(source_path: Path, sample_count: int = 5) -> tuple[int, int, int, int] | None:
+    """Detect baked-in letterbox/pillarbox black bars via FFmpeg cropdetect on 5 timestamps.
+
+    Returns ``(cw, ch, cx, cy)`` only if meaningful black bars (>=16px) are found; else ``None``.
+    """
+    try:
+        info = ffutil.probe(source_path)
+    except Exception:
+        return None
+    v_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+    if not v_stream:
+        return None
+    src_w = int(v_stream.get("width", 0))
+    src_h = int(v_stream.get("height", 0))
+    dur = float(v_stream.get("duration") or info.get("format", {}).get("duration") or 0.0)
+    if src_w < 64 or src_h < 64 or dur <= 0.5:
+        return None
+
+    fracs = [0.12 + 0.76 * (i / max(1, sample_count - 1)) for i in range(max(1, sample_count))]
+    boxes: list[tuple[int, int, int, int]] = []
+    pat = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
+    for f in fracs:
+        ts = max(0.1, min(dur - 0.1, dur * f))
+        res = ffutil.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", f"{ts:.3f}",
+                "-i", str(source_path),
+                "-frames:v", "3",
+                "-vf", "cropdetect=limit=24:round=2:reset=0",
+                "-f", "null", "-",
+            ],
+            check=False,
+        )
+        matches = pat.findall(res.stderr)
+        if matches:
+            cw, ch, cx, cy = (int(v) for v in matches[-1])
+            if 0.65 * src_w <= cw <= src_w and 0.55 * src_h <= ch <= src_h:
+                boxes.append((cw, ch, cx, cy))
+
+    if not boxes:
+        return None
+    cw = int(round(statistics.median(b[0] for b in boxes))) & ~1
+    ch = int(round(statistics.median(b[1] for b in boxes))) & ~1
+    cx = max(0, min(src_w - cw, int(round(statistics.median(b[2] for b in boxes))) & ~1))
+    cy = max(0, min(src_h - ch, int(round(statistics.median(b[3] for b in boxes))) & ~1))
+
+    if (src_h - ch) < 16 and (src_w - cw) < 16:
+        return None
+    log.info("Detected active picture crop on %s: %dx%d+%d+%d (from %dx%d)", source_path.name, cw, ch, cx, cy, src_w, src_h)
+    return (cw, ch, cx, cy)
+
+
+def compute_vertical_layout(active_w: int, active_h: int) -> dict[str, int]:
+    """Compute flush 1080x1920 vertical layout with 0px black gutter above the divider."""
+    aspect = active_w / max(1, active_h)
+    # Max 22% horizontal trim => scaled width <= 1080 / 0.78 (~1385px)
+    max_scaled_w = round(1080 / 0.78)
+    raw_h = int(round(max_scaled_w / max(0.5, aspect))) & ~1
+    movie_h = max(560, min(742, raw_h))
+    movie_y = 204
+    divider_y = movie_y + movie_h
+    booth_h = 1920 - divider_y
+    return {
+        "movie_y": movie_y,
+        "movie_h": movie_h,
+        "divider_y": divider_y,
+        "booth_h": booth_h,
+    }
 
 
 def _load_bold_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -43,16 +264,18 @@ def _render_header_and_divider_png(
     top_headline: str,
     genre: str,
     out_png: Path,
+    *,
+    movie_y: int = 204,
+    divider_y: int = 946,
 ) -> Path:
-    """Render 1080x1920 RGBA chrome: top gradient scrim, PART pill, headline, and glowing y=946 divider."""
+    """Render 1080x1920 RGBA chrome: top gradient scrim, PART pill, headline, and flush glowing divider."""
     w, h = 1080, 1920
     accent = _GENRE_ACCENTS.get(genre, _GENRE_ACCENTS["comedy"])
 
-    # Fast NumPy creation of smooth top dark gradient scrim (y=0..208) + glowing divider (y=938..956)
     arr = np.zeros((h, w, 4), dtype=np.uint8)
 
     # Top scrim so blurred ambient header keeps rich color while headline pops crisply
-    scrim_h = 208
+    scrim_h = min(h, max(180, movie_y + 4))
     ys = np.linspace(0.0, 1.0, scrim_h, dtype=np.float32)
     scrim_a = (165.0 * (1.0 - 0.52 * ys)).astype(np.uint8)
     arr[:scrim_h, :, 0] = 8
@@ -60,12 +283,11 @@ def _render_header_and_divider_png(
     arr[:scrim_h, :, 2] = 16
     arr[:scrim_h, :, 3] = scrim_a[:, None]
 
-    # Subtle glowing 4px genre-accent divider centered at y=946 (halo y=936..956)
-    div_center = 946
+    # Subtle glowing 4px genre-accent divider centered FLUSH at divider_y
+    div_center = max(20, min(h - 20, int(divider_y)))
     for y in range(div_center - 10, div_center + 11):
         dist = abs(y - div_center)
         if dist <= 1:
-            # Luminous core
             r = min(255, int(accent[0] * 0.72 + 255 * 0.28))
             g = min(255, int(accent[1] * 0.72 + 255 * 0.28))
             b = min(255, int(accent[2] * 0.72 + 255 * 0.28))
@@ -84,7 +306,7 @@ def _render_header_and_divider_png(
     img = Image.fromarray(arr, mode="RGBA")
     draw = ImageDraw.Draw(img)
 
-    # 1. Semi-transparent dark-glass PART k/N pill (y=56..102)
+    # 1. Semi-transparent dark-glass PART k/N pill (y=56..100)
     pill_text = f"PART {part_number}/{total_parts}" if total_parts > 1 else "MOVIE RECAP"
     pill_font = _load_bold_font(25)
     pb = draw.textbbox((0, 0), pill_text, font=pill_font)
@@ -117,7 +339,6 @@ def _render_header_and_divider_png(
                 chosen_lines = [headline]
                 break
         else:
-            # Wrap cleanly onto 2 balanced lines if still wide
             words = headline.split()
             mid = max(1, len(words) // 2)
             chosen_font = _load_bold_font(36)
@@ -132,12 +353,11 @@ def _render_header_and_divider_png(
 
         gap = 6
         total_h = sum(line_heights) + gap * (len(chosen_lines) - 1)
-        cur_y = 112 + max(0, (82 - total_h) // 2)
+        cur_y = 110 + max(0, (82 - total_h) // 2)
         for ln, bb, lh in zip(chosen_lines, line_bboxes, line_heights):
             lw = bb[2] - bb[0]
             tx = (w - lw) // 2 - bb[0]
             ty = cur_y - bb[1]
-            # Soft drop shadow + crisp dark stroke for high legibility on bright frames
             draw.text((tx + 2, ty + 3), ln, font=chosen_font, fill=(0, 0, 0, 210))
             draw.text(
                 (tx, ty),
@@ -159,14 +379,16 @@ def expand_movie_with_freezes(
     freeze_events: list[dict[str, Any]],
     work_dir: Path,
     config: dict[str, Any],
+    *,
+    crop_box: tuple[int, int, int, int] | None = None,
 ) -> Path:
-    """Insert frame-exact 1.00x->1.07x slow-zoom freeze holds with muted movie audio at roast beats."""
+    """Insert frame-exact ease-out 1.00x->1.10x zoom freeze holds with contrast/vignette pop."""
     if not freeze_events:
         return chapter_raw_mp4
 
     fps = int(config.get("runtime", {}).get("fps", 30))
-    zoom_end = float(config.get("chapter_commentary", {}).get("freeze_zoom_end", 1.07))
-    zoom_delta = max(0.02, zoom_end - 1.0)
+    zoom_end = float(config.get("chapter_commentary", {}).get("freeze_zoom_end", 1.10))
+    zoom_delta = max(0.03, zoom_end - 1.0)
 
     info = ffutil.probe(chapter_raw_mp4)
     v_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
@@ -174,6 +396,10 @@ def expand_movie_with_freezes(
     src_h = int(v_stream.get("height", 1080))
     src_w -= src_w % 2
     src_h -= src_h % 2
+    apply_crop = bool(crop_box and (crop_box[0] != src_w or crop_box[1] != src_h))
+    out_w = (crop_box[0] & ~1) if (apply_crop and crop_box) else src_w
+    out_h = (crop_box[1] & ~1) if (apply_crop and crop_box) else src_h
+    crop_flt = f"crop={crop_box[0]}:{crop_box[1]}:{crop_box[2]}:{crop_box[3]}," if (apply_crop and crop_box) else ""
     has_audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
     raw_dur = ffutil.duration(chapter_raw_mp4)
 
@@ -202,7 +428,7 @@ def expand_movie_with_freezes(
                 "-ss", f"{t_start:.3f}",
                 "-i", str(chapter_raw_mp4),
                 "-t", f"{exact_dur + 0.25:.3f}",
-                "-vf", f"fps={fps},scale={src_w}:{src_h},setsar=1,tpad=stop_mode=clone:stop_duration=0.5",
+                "-vf", f"{crop_flt}fps={fps},scale={out_w}:{out_h},setsar=1,tpad=stop_mode=clone:stop_duration=0.5",
                 "-frames:v", str(n_frames),
                 "-an",
                 *enc_flags,
@@ -242,30 +468,47 @@ def expand_movie_with_freezes(
         piece_idx += 1
 
     for ev in events:
-        ev_t = max(prev_t, min(raw_dur - 0.1, float(ev["raw_time_sec"])))
+        ev_t = max(prev_t, min(max(0.0, raw_dur - 0.06), float(ev["raw_time_sec"])))
         _cut_normal(prev_t, ev_t)
 
-        # Extract exact frame at ev_t and render silky 1.00x -> 1.07x zoom freeze hold
+        # Extract exact frame at ev_t (with EOF-safe fallback for ending CTA freezes)
         n_frz = max(int(round(1.0 * fps)), int(ev.get("freeze_frames") or round(float(ev["freeze_dur_sec"]) * fps)))
         frz_dur = n_frz / float(fps)
         still_png = frz_dir / f"p{piece_idx:02d}_still.png"
-        ffutil.run(
+        still_vf = ["-vf", f"crop={crop_box[0]}:{crop_box[1]}:{crop_box[2]}:{crop_box[3]}"] if (apply_crop and crop_box) else []
+        res_still = ffutil.run(
             [
                 "ffmpeg", "-y",
                 "-ss", f"{ev_t:.3f}",
                 "-i", str(chapter_raw_mp4),
+                *still_vf,
                 "-frames:v", "1",
                 str(still_png),
-            ]
+            ],
+            check=False,
         )
+        if res_still.returncode != 0 or not still_png.exists() or still_png.stat().st_size < 100:
+            ffutil.run(
+                [
+                    "ffmpeg", "-y",
+                    "-sseof", "-0.12",
+                    "-i", str(chapter_raw_mp4),
+                    *still_vf,
+                    "-frames:v", "1",
+                    str(still_png),
+                ]
+            )
+
         vp = frz_dir / f"p{piece_idx:02d}_freeze_v.mp4"
         ap = frz_dir / f"p{piece_idx:02d}_freeze_a.wav"
         denom = max(1, n_frz - 1)
+        # Quadratic ease-out 1.00x -> 1.10x zoom + subtle contrast/saturation pop + dark corner vignette
         zp_vf = (
-            f"scale={src_w * 2}:{src_h * 2}:flags=lanczos,"
-            f"zoompan=z='1+{zoom_delta:.4f}*on/{denom}':"
+            f"scale={out_w * 2}:{out_h * 2}:flags=lanczos,"
+            f"zoompan=z='1+{zoom_delta:.4f}*(2*(on/{denom})-(on/{denom})*(on/{denom}))':"
             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-            f"d={n_frz}:s={src_w}x{src_h}:fps={fps},setsar=1,format=yuv420p"
+            f"d={n_frz}:s={out_w}x{out_h}:fps={fps},setsar=1,"
+            f"eq=contrast=1.08:saturation=1.12,vignette=PI/6,format=yuv420p"
         )
         ffutil.run(
             [
@@ -329,18 +572,17 @@ def _build_movie_stage_filter(src_w: int, src_h: int, pre: str, stage_w: int = 1
     aspect = src_w / max(1, src_h)
     grade = "eq=contrast=1.06:saturation=1.18:brightness=0.02,unsharp=5:5:0.6:5:5:0.0"
 
-    # Max 22% horizontal trim => scaled_w <= stage_w / 0.78 (~1384px)
+    # Max 22% horizontal trim => scaled_w <= stage_w / 0.78 (~1385px)
     max_scaled_w = round(stage_w / 0.78)
     needed_w_for_full_h = round(stage_h * aspect)
 
-    if needed_w_for_full_h <= max_scaled_w:
-        # 16:9, 4:3, and moderately wide films fill 1080x742 edge-to-edge cleanly within <=22% trim
+    if needed_w_for_full_h <= max_scaled_w + 4:
         return (
             f"[mov_stage_in]{pre}scale={stage_w}:{stage_h}:force_original_aspect_ratio=increase,"
             f"crop={stage_w}:{stage_h},{grade}[mov_stage]"
         )
 
-    # Ultra-wide CinemaScope (>~1.87:1): cap trim at 22% and back remaining strip with vibrant blurred movie
+    # Ultra-wide fallback when stage_h was not dynamically shrunk
     fg_h = max(2, int(round(max_scaled_w / aspect)) & ~1)
     fg_h = min(stage_h, fg_h)
     return (
@@ -368,8 +610,11 @@ def compose_chapter_short(
     top_headline: str = "",
     expansion_meta: dict[str, Any] | None = None,
     source_is_assembled: bool = False,
+    chapter_words: list[dict[str, Any]] | None = None,
+    layout: dict[str, int] | None = None,
+    crop_box: tuple[int, int, int, int] | None = None,
 ) -> Path:
-    """Render viral zero-dead-space 1080x1920 30fps Short with ambient header, Kiko booth & smart ducking."""
+    """Render viral zero-dead-space 1080x1920 30fps Short with flush seam, auto-bleep & smart ducking."""
     cc_cfg = config.get("chapter_commentary", {})
     audio_cfg = config.get("audio", {})
     normal_db = float(cc_cfg.get("source_audio_normal_db", -6.0))
@@ -388,13 +633,22 @@ def compose_chapter_short(
     src_h = int(v_stream.get("height", 1080))
     has_src_audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
 
+    active_w = crop_box[0] if crop_box else src_w
+    active_h = crop_box[1] if crop_box else src_h
+    lay = layout or compute_vertical_layout(active_w, active_h)
+    movie_y = int(lay["movie_y"])
+    movie_h = int(lay["movie_h"])
+    divider_y = int(lay["divider_y"])
+    booth_h = int(lay["booth_h"])
+
     sfx_str = str(expansion_meta.get("sfx_wav", "")).strip() if expansion_meta else ""
     sfx_path = Path(sfx_str) if sfx_str else None
     has_sfx = bool(sfx_path and sfx_path.is_file() and sfx_path.stat().st_size > 100)
 
-    # 1. Mix Audio: -6dB rich movie audio -> sidechain-ducked to ~-18dB when Kiko talks (+ optional freeze SFX)
+    # 1. Mix Audio: -6dB movie audio (auto-bleeped for profanity) -> sidechain-ducked + -13 dBFS freeze SFX
     master_m4a = work_dir / "chapter_master_audio.m4a"
     seek_args = [] if source_is_assembled else ["-ss", f"{chapter_slice.start_sec:.3f}"]
+    bleeped_words: list[dict[str, Any]] = []
 
     if not rights.mute_source_audio and has_src_audio:
         src_aud = work_dir / "src_chapter_audio.wav"
@@ -407,14 +661,23 @@ def compose_chapter_short(
                 "-vn", "-ar", "48000", "-ac", "2", str(src_aud),
             ]
         )
-        aud_cmd = ["ffmpeg", "-y", "-i", str(commentary_wav), "-i", str(src_aud)]
+        movie_aud_for_mix = src_aud
+        if chapter_words and src_aud.exists():
+            shifted = shift_words_for_freezes(
+                chapter_words,
+                list(expansion_meta.get("freeze_events", [])) if expansion_meta else [],
+            )
+            bleeped_aud = work_dir / "src_chapter_audio_bleeped.wav"
+            movie_aud_for_mix, bleeped_words = auto_bleep_profanity(src_aud, shifted, bleeped_aud)
+
+        aud_cmd = ["ffmpeg", "-y", "-i", str(commentary_wav), "-i", str(movie_aud_for_mix)]
         if has_sfx and sfx_path is not None:
             aud_cmd.extend(["-i", str(sfx_path)])
             mix_fc = (
                 f"[0:a]asplit=2[v_sc][v_mix];"
                 f"[1:a]volume={normal_db}dB[bg_lvl];"
                 f"[bg_lvl][v_sc]sidechaincompress=threshold=0.018:ratio=9:attack=12:release=280:makeup=1[bg_duck];"
-                f"[2:a]volume=-6dB[sfx_lvl];"
+                f"[2:a]volume=0dB[sfx_lvl];"
                 f"[v_mix][bg_duck][sfx_lvl]amix=inputs=3:duration=first:normalize=0,"
                 f"loudnorm=I={target_lufs}:TP={true_peak}:LRA=7[out]"
             )
@@ -437,7 +700,7 @@ def compose_chapter_short(
                 f"[0:a]asplit=2[v_sc][v_mix];"
                 f"[1:a]highpass=f=80,equalizer=f=1800:t=q:w=1.2:g=-4,volume={bgm_db}dB[bg_lvl];"
                 f"[bg_lvl][v_sc]sidechaincompress=threshold=0.025:ratio=5:attack=15:release=240[bg_duck];"
-                f"[2:a]volume=-6dB[sfx_lvl];"
+                f"[2:a]volume=0dB[sfx_lvl];"
                 f"[v_mix][bg_duck][sfx_lvl]amix=inputs=3:duration=first:normalize=0,"
                 f"loudnorm=I={target_lufs}:TP={true_peak}:LRA=7[out]"
             )
@@ -452,7 +715,12 @@ def compose_chapter_short(
         aud_cmd.extend(["-filter_complex", mix_fc, "-map", "[out]", "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", str(master_m4a)])
         ffutil.run(aud_cmd)
 
-    # 2. Render top header (PART pill + uppercase top_headline) + glowing y=946 divider overlay PNG
+    # Persist bleeped_words for run_report.json & QA audit
+    (work_dir / "bleeped_words.json").write_text(json.dumps(bleeped_words, indent=2) + "\n", encoding="utf-8")
+    if expansion_meta is not None:
+        expansion_meta["bleeped_words"] = bleeped_words
+
+    # 2. Render top header (PART pill + uppercase top_headline) + flush glowing divider overlay PNG
     headline = top_headline or chapter_slice.top_headline or ""
     chrome_png = _render_header_and_divider_png(
         chapter_slice.part_number,
@@ -460,28 +728,36 @@ def compose_chapter_short(
         headline,
         genre,
         work_dir / f"part_{chapter_slice.part_number}_chrome.png",
+        movie_y=movie_y,
+        divider_y=divider_y,
     )
 
-    # 3. Single-pass zero-dead-space 1080x1920 composite
+    # 3. Single-pass zero-dead-space 1080x1920 composite with flush movie/booth seam
     sample_ts = [2.0] if source_is_assembled else [chapter_slice.start_sec + 2.0]
     deint = video_composer.should_deinterlace(source_path, sample_ts, config, work_year=rights.year)
-    pre = "bwdif=mode=0:parity=-1:deint=0," if deint else ""
+    pre_parts: list[str] = []
+    if deint:
+        pre_parts.append("bwdif=mode=0:parity=-1:deint=0")
+    if crop_box and (crop_box[0] != src_w or crop_box[1] != src_h) and (crop_box[0] + crop_box[2] <= src_w) and (crop_box[1] + crop_box[3] <= src_h):
+        cw, ch, cx, cy = crop_box
+        pre_parts.append(f"crop={cw}:{ch}:{cx}:{cy}")
+    pre = ",".join(pre_parts) + "," if pre_parts else ""
 
     ass_esc = str(ass_path).replace("\\", "/").replace(":", "\\:")
     fonts_dir = str(video_composer._FONTS_DIR).replace("\\", "/").replace(":", "\\:")
     ass_flt = f",ass='{ass_esc}':fontsdir='{fonts_dir}'" if ass_path.exists() and ass_path.stat().st_size > 10 else ""
 
-    stage_filter = _build_movie_stage_filter(src_w, src_h, pre, stage_w=1080, stage_h=742)
+    stage_filter = _build_movie_stage_filter(active_w, active_h, pre, stage_w=1080, stage_h=movie_h)
     fc = (
         f"color=c=0x0b0b10:s=1080x1920:d={dur:.3f}[base];"
         f"[0:v]fps=30,split=2[mov_top_in][mov_stage_in];"
-        f"[mov_top_in]{pre}scale=1080:210:force_original_aspect_ratio=increase,"
-        f"crop=1080:206,boxblur=24:6,eq=brightness=-0.08:saturation=1.28[top_amb];"
+        f"[mov_top_in]{pre}scale=1080:{movie_y + 6}:force_original_aspect_ratio=increase,"
+        f"crop=1080:{movie_y + 2},boxblur=24:6,eq=brightness=-0.08:saturation=1.28[top_amb];"
         f"{stage_filter};"
-        f"[1:v]fps=30,scale=1080:974[host];"
+        f"[1:v]fps=30,scale=1080:{booth_h}[host];"
         f"[base][top_amb]overlay=0:0[s1];"
-        f"[s1][mov_stage]overlay=0:205[s2];"
-        f"[s2][host]overlay=0:946[s3];"
+        f"[s1][mov_stage]overlay=0:{movie_y}[s2];"
+        f"[s2][host]overlay=0:{divider_y}[s3];"
         f"[s3][3:v]overlay=0:0:eof_action=repeat{ass_flt}[out]"
     )
 

@@ -263,6 +263,24 @@ def _black_stats(media_path: Path, total_dur: float) -> tuple[float, float]:
     return max_dur, trailing
 
 
+def _find_trailing_punct_caption_tokens(ass_path: Path) -> list[str]:
+    """Return any visible ASS Dialogue caption tokens ending with '.' or ','."""
+    if not ass_path.exists():
+        return []
+    bad: list[str] = []
+    for line in ass_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if not line.startswith("Dialogue:"):
+            continue
+        parts = line.split(",", 9)
+        if len(parts) < 10:
+            continue
+        visible = re.sub(r"\{[^}]*\}", "", parts[9]).strip()
+        for tok in visible.split():
+            if tok.endswith(".") or tok.endswith(","):
+                bad.append(tok)
+    return bad
+
+
 def run_chapter_qa_gate(
     final_mp4: Path,
     script: Any,
@@ -273,6 +291,10 @@ def run_chapter_qa_gate(
     *,
     strict: bool = True,
     mock_llm: bool = False,
+    part_number: int = 1,
+    total_parts: int = 1,
+    ass_path: Path | None = None,
+    bleeped_words: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run hard QA checks for chapter_commentary mode, write qa_report.json, exit 7 on failure."""
     from pipeline import chapter_commentator
@@ -351,17 +373,48 @@ def run_chapter_qa_gate(
     active_sec = float(expansion_meta.get("active_commentary_sec", 0.0))
     share = active_sec / max(0.1, v_dur) if v_dur > 0 else float(expansion_meta.get("commentary_share", 0.0))
     freeze_count = int(expansion_meta.get("freeze_count", 0))
+    freeze_timestamps = list(expansion_meta.get("freeze_timestamps", []))
     distinct_emotions = sorted({str(t.get("emotion", "neutral")) for t in timings})
+
+    non_freeze_overlaps = [
+        float(t.get("dialogue_overlap_sec", 0.0))
+        for t in timings
+        if not bool(t.get("freeze_frame", False))
+    ]
+    max_dlg_overlap = max(
+        [float(expansion_meta.get("max_dialogue_overlap_sec", 0.0)), *non_freeze_overlaps],
+        default=0.0,
+    )
+
+    last_cue_end = max((float(t.get("end_sec", 0.0)) for t in timings), default=0.0)
+    cta_end_offset = max(0.0, v_dur - last_cue_end) if v_dur > 0 else float(expansion_meta.get("cta_end_offset_sec", 0.0))
+
+    bad_cap_tokens = _find_trailing_punct_caption_tokens(ass_path) if ass_path is not None else []
+    bleeped_list = list(
+        bleeped_words if bleeped_words is not None else expansion_meta.get("bleeped_words", [])
+    )
 
     if not mock_llm:
         if share < min_share or share > max_share:
             failures.append(
                 f"Active commentary share {share:.1%} outside [{min_share:.0%}, {max_share:.0%}]."
             )
-        if freeze_count < 1:
-            failures.append("Zero freeze-frame roast moments rendered in live chapter commentary.")
-        elif freeze_count < 2:
-            warnings.append(f"Only {freeze_count} freeze-frame roast moment rendered (target 2-3).")
+        if freeze_count < 2:
+            failures.append(
+                f"Expected >=2 freeze-frame roast moments rendered in live chapter commentary, got {freeze_count}."
+            )
+        if max_dlg_overlap > 0.45:
+            failures.append(
+                f"Non-freeze commentary cue overlaps BUSY_DIALOGUE by {max_dlg_overlap:.2f}s (>0.45s limit)."
+            )
+        if part_number < total_parts and cta_end_offset > 2.5:
+            failures.append(
+                f"Part {part_number}/{total_parts} ending CTA finished {cta_end_offset:.2f}s before video end (>2.5s limit)."
+            )
+        if bad_cap_tokens:
+            failures.append(
+                f"Caption tokens contain forbidden trailing '.' or ',': {bad_cap_tokens[:6]}"
+            )
 
     report = {
         "passed": len(failures) == 0,
@@ -376,8 +429,13 @@ def run_chapter_qa_gate(
             "trailing_black_sec": round(trailing_black, 3),
             "cues_count": len(timings),
             "freeze_count": freeze_count,
+            "freeze_timestamps": freeze_timestamps,
             "active_commentary_sec": round(active_sec, 2),
             "commentary_share": round(share, 4),
+            "max_dialogue_overlap_sec": round(max_dlg_overlap, 3),
+            "cta_end_offset_sec": round(cta_end_offset, 3),
+            "bleeped_words": bleeped_list,
+            "voice_used": str(expansion_meta.get("voice_used", getattr(script, "voice_name", ""))),
             "distinct_emotions_count": len(distinct_emotions),
             "distinct_emotions": distinct_emotions,
             "top_headline": getattr(script, "top_headline", ""),

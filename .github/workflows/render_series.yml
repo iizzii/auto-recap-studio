@@ -127,6 +127,9 @@ jobs:
           assert qa_path.exists(), f"Missing {qa_path}"
           assert plan_path.exists(), f"Missing {plan_path}"
           summary = json.loads(qa_path.read_text(encoding="utf-8"))
+          print("=== QA_SUMMARY_JSON_START ===")
+          print(json.dumps(summary, indent=2))
+          print("=== QA_SUMMARY_JSON_END ===")
           assert summary.get("all_passed") is True, f"QA failed: {summary}"
           assert len(summary.get("parts", [])) == parts, f"Expected {parts} parts in qa_summary.json"
 

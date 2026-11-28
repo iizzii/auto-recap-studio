@@ -178,6 +178,7 @@ class RunReport(BaseModel):
     publish_results: dict = Field(default_factory=dict)
     deinterlace_applied: bool = False
     bgm_mood: Optional[str] = None
+    bleeped_words: list[dict] = Field(default_factory=list)
 
 
 class PlatformStatus(BaseModel):

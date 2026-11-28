@@ -199,6 +199,7 @@ def run(
             mock_tts=mock_tts,
         )
         run_rep.warnings.extend(ch_qa.get("warnings", []))
+        run_rep.bleeped_words = list(ch_qa.get("metrics", {}).get("bleeped_words", []))
         run_rep.stages_completed.extend(["chapter_commentary", "qa_gate"])
 
         raw_headline_words = (ch_script.top_headline or "WATCH KIKO REACT NOW").split()
@@ -671,18 +672,23 @@ def _write_series_github_summary(slug: str, summary: dict[str, Any]) -> None:
         f"- **All Parts Passed QA:** {'YES' if summary.get('all_passed') else 'NO'}",
         f"- **Total Parts:** {summary.get('total_parts')}",
         "",
-        "| Part | Headline | Duration | Commentary Share | Freezes | Emotions | LUFS | QA |",
-        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :---: |",
+        "| Part | Headline | Duration | Commentary % | Freezes (s) | Bleeped | Max Overlap | CTA Offset | Emotions | LUFS | QA |",
+        "| :--- | :--- | ---: | ---: | :--- | :--- | ---: | ---: | ---: | ---: | :---: |",
     ]
     for p in summary.get("parts", []):
         m = p.get("metrics", {})
         status = "PASS" if p.get("passed") else "FAIL"
+        frz_ts = ", ".join(f"{t:.1f}s" for t in m.get("freeze_timestamps", [])) or str(m.get("freeze_count", 0))
+        bleeps = ", ".join(f"{b.get('word', '')}@{b.get('start_sec', 0):.1f}s" for b in m.get("bleeped_words", [])) or "none"
         lines.append(
             f"| Part {p['part_number']}/{summary.get('total_parts')} "
             f"| {m.get('top_headline', '')} "
             f"| {m.get('video_duration_sec', 0):.1f}s "
             f"| {m.get('commentary_share', 0.0) * 100:.1f}% "
-            f"| {m.get('freeze_count', 0)} "
+            f"| {frz_ts} "
+            f"| {bleeps} "
+            f"| {m.get('max_dialogue_overlap_sec', 0.0):.2f}s "
+            f"| {m.get('cta_end_offset_sec', 0.0):.2f}s "
             f"| {m.get('distinct_emotions_count', 0)} "
             f"| {m.get('integrated_lufs', -99):.1f} "
             f"| {status} |"
@@ -829,7 +835,7 @@ def run_chapter_commentary(
     part_work = work_dir / f"part_{act_plan.part_number}"
     part_work.mkdir(parents=True, exist_ok=True)
 
-    # 3. Assemble intact chronological scenes with 0.12s zero-drift crossfades
+    # 3. Assemble intact chronological scenes with 0.12s crossfades & word-level speech-safe timing
     chapter_raw, _map_path, timeline_map = chapter_slicer.assemble_condensed_chapter(
         source_path=source_path,
         act_plan=act_plan,
@@ -837,8 +843,11 @@ def run_chapter_commentary(
         project_dir=project_dir,
         work_dir=part_work,
         config=cfg,
+        mock_whisper=mock_llm,
     )
     assembled_dur = float(timeline_map["assembled_duration_sec"])
+    busy_intervals = list(timeline_map.get("busy_intervals", []))
+    chapter_words = list(timeline_map.get("chapter_words", []))
     ch_slice = ChapterSlice(
         part_number=act_plan.part_number,
         total_parts=act_plan.total_parts,
@@ -848,17 +857,39 @@ def run_chapter_commentary(
         top_headline=act_plan.top_headline,
     )
 
-    # 4. Extract 2.0s labeled contact sheets (<=2 pages) & generate dialogue-aware commentary
-    sheet_interval = float(cfg.get("chapter_commentary", {}).get("contact_sheet_interval_sec", 2.0))
-    sheets = chapter_slicer.extract_chapter_contact_sheets(
-        chapter_raw, assembled_dur, sheet_interval, part_work, prefix=f"part_{act_plan.part_number}_sheet"
-    )
+    # 3b. Detect baked-in letterbox bars & compute flush 1080x1920 vertical layout (0px gutter!)
+    crop_box = None if mock_llm else chapter_composer.detect_active_crop(chapter_raw)
+    raw_info = ffutil.probe(chapter_raw)
+    raw_v = next((s for s in raw_info.get("streams", []) if s.get("codec_type") == "video"), {})
+    active_w = crop_box[0] if crop_box else int(raw_v.get("width", 1920))
+    active_h = crop_box[1] if crop_box else int(raw_v.get("height", 1080))
+    layout = chapter_composer.compute_vertical_layout(active_w, active_h)
+
+    # 4. Native Gemini MP4 video+audio watching (480p 5fps 64k) in live mode; contact sheets ONLY for mock_llm
+    video_proxy: Path | None = None
+    sheets: list[Path] | None = None
+    if mock_llm:
+        sheet_interval = float(cfg.get("chapter_commentary", {}).get("contact_sheet_interval_sec", 2.0))
+        sheets = chapter_slicer.extract_chapter_contact_sheets(
+            chapter_raw, assembled_dur, sheet_interval, part_work, prefix=f"part_{act_plan.part_number}_sheet"
+        )
+    else:
+        video_proxy = chapter_slicer.build_gemini_video_proxy(
+            chapter_raw,
+            part_work / f"part_{act_plan.part_number}_gemini_proxy.mp4",
+            height=480,
+            fps=5,
+            audio_bitrate="64k",
+        )
+
     script = chapter_commentator.generate_chapter_commentary(
         sheets,
         ch_slice,
         rights_rec.work_title,
         cfg,
+        video_proxy_path=video_proxy,
         dialogue_timeline=str(timeline_map.get("dialogue_timeline_text", "")),
+        busy_intervals=busy_intervals,
         open_gaps=list(timeline_map.get("open_gaps", [])),
         previous_cliffhanger=prev_cliff,
         next_cliffhanger_goal=next_cliff,
@@ -871,23 +902,30 @@ def run_chapter_commentary(
         script.model_dump_json(indent=2) + "\n", encoding="utf-8"
     )
 
-    # 5. Synthesize timed commentary + freeze-frame timeline expansion + pop captions
+    # 5. Synthesize dynamic-prosody commentary + freeze-frame timeline expansion + clean 1-word pop captions
     full_wav, timings_json, ass_path = chapter_commentator.synthesize_timed_commentary(
-        script, assembled_dur, part_work, cfg, mock_tts=mock_tts
+        script,
+        assembled_dur,
+        part_work,
+        cfg,
+        mock_tts=mock_tts,
+        busy_intervals=busy_intervals,
+        seam_y=layout["divider_y"],
     )
     timings = json.loads(timings_json.read_text(encoding="utf-8"))
     expansion_meta = json.loads((part_work / "03_timeline_expansion.json").read_text(encoding="utf-8"))
     expanded_dur = float(expansion_meta["expanded_duration_sec"])
 
-    # 6. Expand chapter video with silky 1.00x->1.07x slow-zoom freeze-frame roast holds
+    # 6. Expand chapter video with ease-out 1.00x->1.10x zoom freeze-frame roasts & contrast/vignette pop
     chapter_expanded = chapter_composer.expand_movie_with_freezes(
         chapter_raw,
         list(expansion_meta.get("freeze_events", [])),
         part_work,
         cfg,
+        crop_box=crop_box,
     )
 
-    # 7. Render 1080x970 Kiko 3D host booth with 6% reactive movie screen-glow lighting
+    # 7. Render flush 1080xbooth_h Kiko 3D host booth (normalized sprites, 3D desk & screen-glow)
     host_mp4 = host_animator.render_host_booth_video(
         full_wav,
         timings,
@@ -896,9 +934,10 @@ def run_chapter_commentary(
         part_work / "host_booth.mp4",
         cfg,
         movie_path=chapter_expanded,
+        booth_height=layout["booth_h"],
     )
 
-    # 8. Single-pass zero-dead-space 9:16 composite
+    # 8. Single-pass zero-dead-space 9:16 composite + auto-profanity bleeping
     final_mp4 = out_dir / "final_short.mp4"
     chapter_composer.compose_chapter_short(
         chapter_expanded,
@@ -914,9 +953,12 @@ def run_chapter_commentary(
         top_headline=script.top_headline or act_plan.top_headline,
         expansion_meta=expansion_meta,
         source_is_assembled=True,
+        chapter_words=chapter_words,
+        layout=layout,
+        crop_box=crop_box,
     )
 
-    # 9. Hard QA gate (loudness, sync, black frames, commentary share, anti-placeholder, emotions)
+    # 9. Hard QA gate (freezes >=2, share 35-65%, overlap <=0.45s, CTA <=2.5s, clean captions, LUFS, sync)
     qa_rep = qa_gate.run_chapter_qa_gate(
         final_mp4=final_mp4,
         script=script,
@@ -926,6 +968,10 @@ def run_chapter_commentary(
         config=cfg,
         strict=True,
         mock_llm=mock_llm,
+        part_number=act_plan.part_number,
+        total_parts=act_plan.total_parts,
+        ass_path=ass_path,
+        bleeped_words=list(expansion_meta.get("bleeped_words", [])),
     )
 
     # Export per-part artifacts for multi-part series upload

@@ -339,8 +339,44 @@ def extract_chapter_contact_sheets(
     )
 
 
+def build_gemini_video_proxy(
+    src_mp4: Path,
+    out_mp4: Path,
+    *,
+    height: int = 480,
+    fps: int = 5,
+    audio_bitrate: str = "64k",
+) -> Path:
+    """Encode a compact H.264 + mono AAC MP4 proxy for native Gemini Files API video+audio watching."""
+    if out_mp4.exists() and out_mp4.stat().st_size > 50_000:
+        log.info("Reusing cached Gemini video proxy %s (%.2f MB)", out_mp4.name, out_mp4.stat().st_size / (1024 * 1024))
+        return out_mp4
+    out_mp4.parent.mkdir(parents=True, exist_ok=True)
+    has_audio = ffutil.has_audio(src_mp4)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(src_mp4),
+        "-vf", f"scale=-2:{height},fps={fps}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
+    ]
+    if has_audio:
+        cmd.extend(["-c:a", "aac", "-ac", "1", "-ar", "24000", "-b:a", audio_bitrate])
+    else:
+        cmd.append("-an")
+    cmd.extend(["-movflags", "+faststart", str(out_mp4)])
+    ffutil.run(cmd)
+    log.info(
+        "Built Gemini video proxy %s (%dp @ %dfps, %.2f MB)",
+        out_mp4.name,
+        height,
+        fps,
+        out_mp4.stat().st_size / (1024 * 1024),
+    )
+    return out_mp4
+
+
 def _speech_intervals(dialogue_segments: list[dict[str, Any]]) -> list[tuple[float, float]]:
-    """Return sorted spoken intervals (word-level if available, else segment-level)."""
+    """Return sorted spoken word intervals (word-level when available, else segment-level)."""
     intervals: list[tuple[float, float]] = []
     for seg in dialogue_segments:
         words = seg.get("words") or []
@@ -357,32 +393,71 @@ def _speech_intervals(dialogue_segments: list[dict[str, Any]]) -> list[tuple[flo
     return intervals
 
 
-def _nudge_out_of_speech(
+def _merge_speech_phrases(
+    word_intervals: list[tuple[float, float]],
+    min_silent_gap: float = 0.28,
+) -> list[tuple[float, float]]:
+    """Merge consecutive spoken words separated by < min_silent_gap into unbreakable speech phrases."""
+    if not word_intervals:
+        return []
+    phrases: list[tuple[float, float]] = [word_intervals[0]]
+    for ws, we in word_intervals[1:]:
+        ps, pe = phrases[-1]
+        if ws - pe < min_silent_gap:
+            phrases[-1] = (ps, max(pe, we))
+        else:
+            phrases.append((ws, we))
+    return phrases
+
+
+def _snap_to_silent_gap(
     ts: float,
-    speech: list[tuple[float, float]],
+    word_intervals: list[tuple[float, float]],
     *,
     prefer_earlier: bool,
-    max_nudge: float,
     lo: float,
     hi: float,
+    word_pad: float = 0.18,
+    min_silent_gap: float = 0.28,
+    max_expand: float = 4.5,
 ) -> float:
-    """If ts lands inside a spoken word/line, nudge ±max_nudge to nearest silence boundary."""
-    for ws, we in speech:
-        if ws + 0.04 < ts < we - 0.04:
-            cand_early = max(lo, ws - 0.06)
-            cand_late = min(hi, we + 0.06)
+    """If ts falls inside [w.start - 0.18, w.end + 0.18] of any word, expand to nearest >=0.28s silent gap."""
+    if not word_intervals:
+        return round(ts, 3)
+
+    # First check direct word/pad collision
+    hits_word = any((ws - word_pad) < ts < (we + word_pad) for ws, we in word_intervals)
+    if not hits_word:
+        return round(ts, 3)
+
+    phrases = _merge_speech_phrases(word_intervals, min_silent_gap=min_silent_gap)
+    for ps, pe in phrases:
+        if (ps - word_pad) < ts < (pe + word_pad):
+            # Place boundary cleanly inside the >=0.28s silent gap on either side of the phrase
+            cand_early = max(lo, ps - min(word_pad, min_silent_gap * 0.5))
+            cand_late = min(hi, pe + min(word_pad, min_silent_gap * 0.5))
+            early_ok = cand_early >= lo and not any((ws - 0.04) < cand_early < (we + 0.04) for ws, we in word_intervals)
+            late_ok = cand_late <= hi and not any((ws - 0.04) < cand_late < (we + 0.04) for ws, we in word_intervals)
             d_early = abs(ts - cand_early)
             d_late = abs(cand_late - ts)
+
             if prefer_earlier:
-                if d_early <= max_nudge:
+                if early_ok and d_early <= max_expand:
                     return round(cand_early, 3)
-                if d_late <= max_nudge:
+                if late_ok and d_late <= max_expand:
                     return round(cand_late, 3)
             else:
-                if d_late <= max_nudge:
+                if late_ok and d_late <= max_expand:
                     return round(cand_late, 3)
-                if d_early <= max_nudge:
+                if early_ok and d_early <= max_expand:
                     return round(cand_early, 3)
+
+            if early_ok and late_ok:
+                return round(cand_early if d_early <= d_late else cand_late, 3)
+            if early_ok:
+                return round(cand_early, 3)
+            if late_ok:
+                return round(cand_late, 3)
             break
     return round(ts, 3)
 
@@ -395,10 +470,11 @@ def snap_scene_segments(
     allowed_end: float,
     *,
     cut_snap_sec: float = 2.5,
-    speech_nudge_sec: float = 0.6,
+    word_pad_sec: float = 0.18,
+    min_silent_gap_sec: float = 0.28,
     min_seg_sec: float = 6.0,
 ) -> list[SceneSegment]:
-    """Snap segment boundaries to nearest scene cut (±2.5s) and nudge out of spoken words (±0.6s)."""
+    """Snap segment boundaries to nearest scene cut (±2.5s) and word-level >=0.28s silent gaps."""
     speech = _speech_intervals(dialogue_segments)
     sorted_segs = sorted(segments, key=lambda s: s.start_sec)
     snapped: list[SceneSegment] = []
@@ -409,30 +485,39 @@ def snap_scene_segments(
         next_start = sorted_segs[idx + 1].start_sec if idx + 1 < len(sorted_segs) else allowed_end
         e_t = min(allowed_end, max(s_t + min_seg_sec, seg.end_sec))
 
-        # 1. Snap to nearest scene cut within ±cut_snap_sec
+        # 1. Snap to nearest scene cut within ±cut_snap_sec (prefer cuts that are NOT mid-word)
         if scene_cuts:
             near_s = [c for c in scene_cuts if abs(c - s_t) <= cut_snap_sec and prev_end <= c <= e_t - min_seg_sec]
             if near_s:
-                s_t = min(near_s, key=lambda c: abs(c - s_t))
+                clean_s = [c for c in near_s if not any((ws - word_pad_sec) < c < (we + word_pad_sec) for ws, we in speech)]
+                s_t = min(clean_s or near_s, key=lambda c: abs(c - s_t))
             near_e = [
                 c
                 for c in scene_cuts
                 if abs(c - e_t) <= cut_snap_sec and s_t + min_seg_sec <= c <= min(allowed_end, next_start)
             ]
             if near_e:
-                e_t = min(near_e, key=lambda c: abs(c - e_t))
+                clean_e = [c for c in near_e if not any((ws - word_pad_sec) < c < (we + word_pad_sec) for ws, we in speech)]
+                e_t = min(clean_e or near_e, key=lambda c: abs(c - e_t))
 
-        # 2. Speech-safe nudge so cuts never slice mid-word
-        s_t = _nudge_out_of_speech(
-            s_t, speech, prefer_earlier=True, max_nudge=speech_nudge_sec, lo=prev_end, hi=e_t - min_seg_sec
+        # 2. Word-level speech-safe silent-gap snap (NEVER slice mid-word or mid-sentence!)
+        s_t = _snap_to_silent_gap(
+            s_t,
+            speech,
+            prefer_earlier=True,
+            lo=prev_end,
+            hi=e_t - min_seg_sec,
+            word_pad=word_pad_sec,
+            min_silent_gap=min_silent_gap_sec,
         )
-        e_t = _nudge_out_of_speech(
+        e_t = _snap_to_silent_gap(
             e_t,
             speech,
             prefer_earlier=False,
-            max_nudge=speech_nudge_sec,
             lo=s_t + min_seg_sec,
             hi=min(allowed_end, next_start),
+            word_pad=word_pad_sec,
+            min_silent_gap=min_silent_gap_sec,
         )
 
         if e_t <= s_t + 1.0:
@@ -654,17 +739,12 @@ def plan_three_act_series(
         raw_plan = _mock_three_act_plan(allowed_start, allowed_end, total_parts, base_slug, work_title)
         plan = sanitize_three_act_plan(raw_plan, allowed_start, allowed_end, total_parts, cuts, dialogue)
     else:
-        interval = float(config.get("chapter_commentary", {}).get("storyboard_interval_sec", 5.0))
-        pages = extract_storyboard_pages(
+        proxy_mp4 = build_gemini_video_proxy(
             source_path,
-            allowed_start,
-            allowed_end,
-            interval,
-            work_dir / "storyboard",
-            prefix="full_film",
-            max_pages=3,
-            max_tiles_per_page=48,
-            relative_labels=False,
+            work_dir / "gemini_full_film_proxy.mp4",
+            height=360,
+            fps=2,
+            audio_bitrate="48k",
         )
         prompt_tmpl = _DIRECTOR_PROMPT.read_text(encoding="utf-8") if _DIRECTOR_PROMPT.exists() else ""
         prompt_tmpl = prompt_tmpl.replace("{TOTAL_PARTS}", str(total_parts))
@@ -680,9 +760,10 @@ def plan_three_act_series(
         )
         data = chapter_commentator.call_gemini_structured(
             f"{prompt_tmpl}\n\n{meta}",
-            pages,
+            [],
             _GeminiThreeActSeriesPlan,
             config,
+            video_path=proxy_mp4,
             label=f"three_act_director_{base_slug}",
         )
         data["base_slug"] = base_slug
@@ -694,6 +775,72 @@ def plan_three_act_series(
     project_dir.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(plan.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return plan
+
+
+def remap_words_to_chapter(
+    dialogue_segments: list[dict[str, Any]],
+    segment_mappings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Remap word-level film timestamps onto the assembled chapter timeline."""
+    chapter_words: list[dict[str, Any]] = []
+    for m in segment_mappings:
+        src_s = float(m["src_start_sec"])
+        src_e = float(m["src_end_sec"])
+        ch_s = float(m["chapter_start_sec"])
+        for d in dialogue_segments:
+            words = d.get("words") or []
+            for w in words:
+                ws, we = float(w["start"]), float(w["end"])
+                if we <= src_s or ws >= src_e:
+                    continue
+                ov_s = max(ws, src_s)
+                ov_e = min(we, src_e)
+                if ov_e - ov_s < 0.02:
+                    continue
+                chapter_words.append(
+                    {
+                        "word": str(w.get("word", "")).strip(),
+                        "start": round(ch_s + (ov_s - src_s), 3),
+                        "end": round(ch_s + (ov_e - src_s), 3),
+                    }
+                )
+    chapter_words.sort(key=lambda x: x["start"])
+    return chapter_words
+
+
+def _transcribe_chapter_words(
+    chapter_mp4: Path,
+    work_dir: Path,
+    config: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fallback Whisper base.en word-level pass on chapter_raw.mp4 when source lacked word timestamps."""
+    from faster_whisper import WhisperModel
+
+    wav_16k = work_dir / f"{chapter_mp4.stem}_16k.wav"
+    ffutil.run(
+        [
+            "ffmpeg", "-y", "-i", str(chapter_mp4),
+            "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+            str(wav_16k),
+        ]
+    )
+    threads = int(config.get("runtime", {}).get("threads", 2))
+    model_name = str(config.get("source", {}).get("whisper_model_fallback", "base.en"))
+    model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=threads)
+    raw_segs, _ = model.transcribe(str(wav_16k), vad_filter=True, word_timestamps=True)
+    words_out: list[dict[str, Any]] = []
+    segs_out: list[dict[str, Any]] = []
+    for seg in raw_segs:
+        txt = seg.text.strip()
+        if not txt:
+            continue
+        segs_out.append({"start_sec": round(float(seg.start), 3), "end_sec": round(float(seg.end), 3), "text": txt})
+        for w in getattr(seg, "words", []) or []:
+            wt = w.word.strip()
+            if wt:
+                words_out.append({"word": wt, "start": round(float(w.start), 3), "end": round(float(w.end), 3)})
+    wav_16k.unlink(missing_ok=True)
+    return segs_out, words_out
 
 
 def remap_dialogue_to_chapter(
@@ -781,8 +928,10 @@ def assemble_condensed_chapter(
     project_dir: Path,
     work_dir: Path,
     config: dict[str, Any],
+    *,
+    mock_whisper: bool = False,
 ) -> tuple[Path, Path, dict[str, Any]]:
-    """Cut and stitch ActChapterPlan.segments into chapter_raw.mp4 with 0.12s zero-drift audio crossfades."""
+    """Cut and stitch ActChapterPlan.segments into chapter_raw.mp4 with 0.08s splice fades & word-level map."""
     fps = int(config.get("runtime", {}).get("fps", 30))
     xfade_sec = float(config.get("chapter_commentary", {}).get("audio_crossfade_sec", 0.12))
     seg_dir = work_dir / f"part_{act_plan.part_number}_segments"
@@ -820,9 +969,12 @@ def assemble_condensed_chapter(
         )
         vid_paths.append(v_out)
 
-        # For zero-drift 0.12s acrossfade between segments i and i+1, extend audio slice i by +xfade_sec
+        # Zero-drift 0.12s acrossfade + 0.08s smooth splice fades so segment cuts have zero clicks
         extra_tail = xfade_sec if (idx < n_segs - 1 and xfade_sec > 0.0) else 0.0
         aud_dur = exact_dur + extra_tail
+        fade_in_d = 0.08 if idx > 0 else 0.02
+        fade_out_d = 0.08 if idx < n_segs - 1 else 0.03
+        fade_out_st = max(0.0, aud_dur - fade_out_d)
         a_out = seg_dir / f"seg_{idx:02d}_a.wav"
         if has_audio:
             ffutil.run(
@@ -832,7 +984,10 @@ def assemble_condensed_chapter(
                     "-i", str(source_path),
                     "-t", f"{aud_dur + 0.2:.3f}",
                     "-vn",
-                    "-af", f"apad=whole_dur={aud_dur:.6f},atrim=0:{aud_dur:.6f},asetpts=PTS-STARTPTS",
+                    "-af", (
+                        f"apad=whole_dur={aud_dur:.6f},atrim=0:{aud_dur:.6f},asetpts=PTS-STARTPTS,"
+                        f"afade=t=in:st=0:d={fade_in_d:.3f},afade=t=out:st={fade_out_st:.3f}:d={fade_out_d:.3f}"
+                    ),
                     "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
                     str(a_out),
                 ]
@@ -918,6 +1073,29 @@ def assemble_condensed_chapter(
     mapped_dlg, open_gaps, timeline_str = remap_dialogue_to_chapter(
         dialogue_segments, mappings, assembled_dur
     )
+    chapter_words = remap_words_to_chapter(dialogue_segments, mappings)
+    if not chapter_words and has_audio and not mock_whisper:
+        try:
+            tr_segs, tr_words = _transcribe_chapter_words(chapter_raw, work_dir, config)
+            if tr_words:
+                chapter_words = tr_words
+            if tr_segs and not mapped_dlg:
+                mapped_dlg = tr_segs
+        except Exception as exc:
+            log.warning("Fallback chapter word transcription skipped (%s).", exc)
+
+    # Exact merged BUSY_DIALOGUE spans for collision resolver & QA gate
+    busy_intervals: list[list[float]] = []
+    for item in mapped_dlg:
+        bs = max(0.0, float(item["start_sec"]))
+        be = min(assembled_dur, float(item["end_sec"]))
+        if be <= bs:
+            continue
+        if busy_intervals and bs <= busy_intervals[-1][1] + 0.15:
+            busy_intervals[-1][1] = round(max(busy_intervals[-1][1], be), 3)
+        else:
+            busy_intervals.append([round(bs, 3), round(be, 3)])
+
     timeline_map = {
         "part_number": act_plan.part_number,
         "total_parts": act_plan.total_parts,
@@ -925,6 +1103,8 @@ def assemble_condensed_chapter(
         "assembled_duration_sec": assembled_dur,
         "segments": mappings,
         "dialogue": mapped_dlg,
+        "busy_intervals": busy_intervals,
+        "chapter_words": chapter_words,
         "open_gaps": open_gaps,
         "dialogue_timeline_text": timeline_str,
     }

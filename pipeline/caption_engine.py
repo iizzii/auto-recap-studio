@@ -314,6 +314,18 @@ def _is_emphasis_token(raw_word: str, emphasis_word: str) -> bool:
     return norm in _REACTION_GOLD_WORDS
 
 
+def _clean_caption_word(raw_word: str) -> str:
+    """Strip leading/trailing .,;: and quotes/dashes while keeping ? and ! and internal apostrophes."""
+    w = str(raw_word or "").strip()
+    w = re.sub(r'^[\s.,;:—–\-\'"“”‘’()\[\]]+', "", w)
+    prev = None
+    while w != prev:
+        prev = w
+        w = re.sub(r'[\s.,;:—–\-\'"“”‘’()\[\]]+$', "", w)
+    w = re.sub(r"[.,;:]+([!?]+)$", r"\1", w)
+    return w.strip().upper()
+
+
 def _align_cue_words(
     cue_text: str,
     cue_start: float,
@@ -321,8 +333,8 @@ def _align_cue_words(
     whisper_words: list[tuple[str, float, float]],
 ) -> list[tuple[str, float, float]]:
     """Align words of a single cue to Whisper word timings inside [cue_start, cue_end]."""
-    clean = re.sub(r"[—–/]+", " ", cue_text)
-    words = [w.strip("—–- ") for w in clean.split() if w.strip("—–- ")]
+    clean = re.sub(r"[—–/]+|\.{2,}", " ", cue_text)
+    words = [w.strip("—–- ") for w in clean.split() if _clean_caption_word(w)]
     if not words:
         return []
     dur = max(0.15, cue_end - cue_start)
@@ -368,8 +380,9 @@ def build_chapter_pop_captions(
     config: dict[str, Any],
     *,
     mock_tts: bool = False,
+    seam_y: int | None = None,
 ) -> Path:
-    """Build viral 1-2 word pop captions at the movie/booth seam with gold emphasis highlights."""
+    """Build crisp 1-word pop captions centered on the movie/booth seam with gold emphasis."""
     cap_cfg = config.get("captions", {})
     font_name = _resolve_font(
         str(cap_cfg.get("font_name", "Montserrat ExtraBold")),
@@ -378,7 +391,11 @@ def build_chapter_pop_captions(
     font_size = int(cap_cfg.get("font_size", 92))
     outline_px = int(cap_cfg.get("outline_px", 7))
     shadow_px = int(cap_cfg.get("shadow_px", 3))
-    margin_v = int(cap_cfg.get("chapter_margin_v", 905))
+    margin_v = (
+        max(160, min(1400, 1920 - int(seam_y) - int(font_size * 0.46)))
+        if seam_y is not None
+        else int(cap_cfg.get("chapter_margin_v", 932))
+    )
     white_ass = _hex_to_ass_bgr(str(cap_cfg.get("active_color", "#FFFFFF")))
     white_tag = _hex_to_ass_tag_bgr(str(cap_cfg.get("active_color", "#FFFFFF")))
     gold_tag = _hex_to_ass_tag_bgr(str(cap_cfg.get("emphasis_color", "#FFD84D")))
@@ -423,7 +440,7 @@ def build_chapter_pop_captions(
 
     events: list[str] = []
     pop_tag = r"{\fscx92\fscy92\t(0,60,\fscx112\fscy112)\t(60,120,\fscx100\fscy100)}"
-    min_word_ms = int(cap_cfg.get("min_word_display_ms", 120))
+    micro_merge_ms = 75.0
     max_chunk_chars = 14
 
     prev_end = 0.0
@@ -435,23 +452,29 @@ def build_chapter_pop_captions(
         if not aligned:
             continue
 
-        # Pack into punchy 1-2 word chunks without crossing cue boundaries
+        # Strictly 1 word per event: only merge 1-2 letter words if duration < 75ms
         chunks: list[list[tuple[str, float, float]]] = []
         idx = 0
         while idx < len(aligned):
-            w, ws, we = aligned[idx]
+            raw_w, ws, we = aligned[idx]
+            clean_w = _clean_caption_word(raw_w)
+            if not clean_w:
+                idx += 1
+                continue
             dur_ms = (we - ws) * 1000.0
             if (
                 idx + 1 < len(aligned)
-                and (len(w) <= 3 or dur_ms < min_word_ms)
-                and not _is_emphasis_token(w, emp)
-                and len(w) + 1 + len(aligned[idx + 1][0]) <= max_chunk_chars
+                and len(clean_w) <= 2
+                and dur_ms < micro_merge_ms
+                and not _is_emphasis_token(clean_w, emp)
             ):
-                chunks.append([aligned[idx], aligned[idx + 1]])
-                idx += 2
-            else:
-                chunks.append([aligned[idx]])
-                idx += 1
+                next_clean = _clean_caption_word(aligned[idx + 1][0])
+                if next_clean and len(clean_w) + 1 + len(next_clean) <= max_chunk_chars:
+                    chunks.append([aligned[idx], aligned[idx + 1]])
+                    idx += 2
+                    continue
+            chunks.append([aligned[idx]])
+            idx += 1
 
         for chunk in chunks:
             s_t = max(prev_end, chunk[0][1])
@@ -459,10 +482,10 @@ def build_chapter_pop_captions(
             prev_end = e_t
             styled_parts: list[str] = []
             for raw_w, _, _ in chunk:
-                disp = raw_w.strip("—–- ").upper()
+                disp = _clean_caption_word(raw_w)
                 if not disp:
                     continue
-                if _is_emphasis_token(raw_w, emp):
+                if _is_emphasis_token(disp, emp):
                     styled_parts.append(f"{{\\c{gold_tag}}}{disp}{{\\c{white_tag}}}")
                 else:
                     styled_parts.append(disp)

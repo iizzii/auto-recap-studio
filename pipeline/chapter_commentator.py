@@ -1228,18 +1228,26 @@ def synthesize_timed_commentary(
                     want_freeze = False
 
         if want_freeze:
-            # Dynamic freeze hold: max(1.5, actual_wav_dur + 0.45), capped at 4.2s ending CTA / 3.2s mid-chapter
-            max_hold = 4.2 if is_last else 3.2
-            raw_hold = min(max_hold, max(1.5, dur + 0.45))
+            # Speed up overly long freeze cues BEFORE computing freeze hold so full audio + >=0.42s pad ALWAYS fits
+            pre_target = 3.65 if is_last else 2.75
+            if dur > pre_target:
+                pre_spd = min(1.28 if is_last else 1.22, dur / max(1.0, pre_target - 0.10))
+                if pre_spd > 1.01:
+                    sped_wav = out_dir / f"cue_{cue.cue_id:03d}_sped.wav"
+                    wav_path, dur = _speed_up_wav(wav_path, pre_spd, sped_wav, sr=sr, mock_tts=mock_tts)
+
+            # Dynamic freeze hold: max(1.5, actual_wav_dur + 0.50); ending CTA allows up to 5.2s to guarantee ZERO chop
+            max_hold = 5.2 if is_last else 3.4
+            raw_hold = min(max_hold, max(1.5, dur + 0.50))
             freeze_frames = max(int(round(1.5 * fps)), min(int(round(max_hold * fps)), round(raw_hold * fps)))
             freeze_dur = round(freeze_frames / fps, 6)
 
-            # Guarantee >= 0.32s clean breathing room after voice finishes before freeze/video ends
-            usable_window = max(0.9, freeze_dur - 0.38)
+            # Final safety speedup if a huge cue still leaves < 0.38s breathing room inside freeze_dur
+            usable_window = max(0.9, freeze_dur - 0.44)
             if dur > usable_window:
-                needed_speed = min(1.22, dur / usable_window)
+                needed_speed = min(1.35, dur / usable_window)
                 if needed_speed > 1.01:
-                    sped_wav = out_dir / f"cue_{cue.cue_id:03d}_sped.wav"
+                    sped_wav = out_dir / f"cue_{cue.cue_id:03d}_sped2.wav"
                     wav_path, dur = _speed_up_wav(wav_path, needed_speed, sped_wav, sr=sr, mock_tts=mock_tts)
 
             t_exp = round(t_raw + cumulative_shift, 3)

@@ -663,3 +663,47 @@ def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -
     assert exp["freeze_count"] <= 6
     assert exp["max_dialogue_overlap_sec"] <= 0.45
     assert exp["cta_end_padding_sec"] >= 0.30
+
+
+def test_long_ending_cta_never_chops_at_eof(tmp_path: Path) -> None:
+    """Even a long 5.1s ending CTA WAV must speed-fit + hold >= 0.38s before expanded EOF."""
+    import wave
+
+    script = ChapterCommentaryScript(
+        genre="horror_comedy",
+        voice_name="en-US-ChristopherNeural",
+        voice_rate="+8%",
+        chapter_title="Sprite Fright Part 1",
+        top_headline="THEY WOKE UP THE FOREST",
+        cues=[
+            CommentaryCue(
+                cue_id=1, start_sec=0.0, max_duration_sec=2.5,
+                text="Hold up these campers brought zero survival instincts into the dark woods!",
+                emphasis_word="SURVIVAL", emotion="smug", pause_emotion="suspicious",
+            ),
+            CommentaryCue(
+                cue_id=2, start_sec=29.95, max_duration_sec=4.0,
+                text="Wait until you see what these glowing sprites pull out next—Part 2 is live on our profile right now!",
+                emphasis_word="LIVE", emotion="hyped", pause_emotion="shocked",
+                freeze_frame=True, freeze_duration_sec=2.6,
+            ),
+        ],
+    )
+
+    def _fake_long_synth(text: str, voice: str, rate: str, out_wav: Path, **kwargs: object) -> float:
+        sr = 48000
+        dur = 5.10 if "Part 2" in text else 1.80
+        pcm = np.zeros(round(dur * sr), dtype=np.int16)
+        with wave.open(str(out_wav), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(pcm.tobytes())
+        return dur
+
+    with patch("pipeline.chapter_commentator._synth_cue_wav", side_effect=_fake_long_synth):
+        chapter_commentator.synthesize_timed_commentary(
+            script, 30.0, tmp_path, {}, mock_tts=True
+        )
+    exp = json.loads((tmp_path / "03_timeline_expansion.json").read_text(encoding="utf-8"))
+    assert exp["cta_end_padding_sec"] >= 0.38

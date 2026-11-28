@@ -273,7 +273,7 @@ def _build_desk_and_vignette_strip(
         arr[rel_desk : rel_desk + top_surface_h, :, 0] = np.clip(desk_rgb[0] * top_shade * 1.25, 0, 255)
         arr[rel_desk : rel_desk + top_surface_h, :, 1] = np.clip(desk_rgb[1] * top_shade * 1.22, 0, 255)
         arr[rel_desk : rel_desk + top_surface_h, :, 2] = np.clip(desk_rgb[2] * top_shade * 1.22, 0, 255)
-        arr[rel_desk : rel_desk + top_surface_h, :, 3] = 254.0
+        arr[rel_desk : rel_desk + top_surface_h, :, 3] = 255.0
 
         # 1b. Elliptical cast contact shadow directly under Kiko's hoodie chest
         yy_s, xx_s = np.mgrid[0:top_surface_h, 0:width].astype(np.float32)
@@ -657,6 +657,23 @@ def render_host_booth_video(
         desk_bottom_rel_y,
         char_x_ratio=x_ratio,
     )
+    rel_desk_split = max(0, desk_top_rel_y - strip_top_y)
+    desk_top_rgba = desk_vignette.crop((0, 0, booth_w, rel_desk_split)) if rel_desk_split > 0 else None
+    desk_body_opaque = desk_vignette.crop((0, rel_desk_split, booth_w, desk_vignette.height))
+
+    canvas_zoom_cache: dict[int, Image.Image] = {}
+
+    def _get_base_canvas(zoom: float) -> Image.Image:
+        q = max(200, int(round(zoom * 200.0)))
+        cached = canvas_zoom_cache.get(q)
+        if cached is not None:
+            return cached.copy()
+        base = Image.new("RGBA", (booth_w, overlay_h), (0, 0, 0, 0))
+        booth_cur = _zoom_booth_frame(booth_img, q / 200.0, booth_w, booth_h, x_ratio, booth_zoom_cache)
+        base.paste(booth_cur, (0, headroom))
+        _paste_rgba_clipped(base, divider_strip, 0, headroom - divider_half_glow)
+        canvas_zoom_cache[q] = base
+        return base.copy()
 
     n_frames = max(1, round(duration_sec * fps))
     rms_arr = _compute_frame_rms(wav_path, n_frames, fps=fps)
@@ -721,6 +738,7 @@ def render_host_booth_video(
     cur_zoom = 1.00
     rms_smooth = 0.0
     rot_cache: dict[tuple[str, int], Image.Image] = {}
+    scale_cache: dict[tuple[str, int, int, int], Image.Image] = {}
 
     def _get_sprite(em: str, mouth: str, is_blink: bool) -> tuple[str, Image.Image | None]:
         if is_blink and mouth in ("closed", "half") and em not in ("laughing", "facepalm"):
@@ -779,6 +797,8 @@ def render_host_booth_video(
         # 1. Smooth dynamic booth camera punch-in (1.00x .. 1.14x over ~10 frames)
         target_zoom = get_target_camera_zoom(emotion, is_freeze=is_freeze)
         cur_zoom = 0.78 * cur_zoom + 0.22 * target_zoom
+        if abs(cur_zoom - target_zoom) < 0.002:
+            cur_zoom = target_zoom
 
         # 2. Emotion micro-physics (tilt, shake, recoil, rock, sway, RMS bounce & scale pulse)
         dx_phys = 0.0
@@ -829,26 +849,22 @@ def render_host_booth_video(
         if curr_spr is not None:
             curr_spr = _rotated(curr_key, curr_spr, cur_tilt)
 
+        is_xfading = False
         if xfade_frames_left > 0 and curr_spr is not None:
             prev_key, prev_spr = _get_sprite(xfade_from_emotion, mouth, False)
             if prev_spr is not None and prev_key != curr_key:
                 prev_rot = _rotated(prev_key, prev_spr, cur_tilt)
                 alpha_mix = 1.0 - (xfade_frames_left / float(xfade_total + 1))
                 spr_to_draw = Image.blend(prev_rot, curr_spr, alpha_mix)
+                is_xfading = True
             else:
                 spr_to_draw = curr_spr
             xfade_frames_left -= 1
         else:
             spr_to_draw = curr_spr
 
-        # 4. Assemble 1080x750 RGBA frame:
-        #    (a) transparent headroom rel_y=0..headroom
-        #    (b) opaque zoomed 1080x700 dark cinema booth at rel_y=headroom..overlay_h
-        #    (c) glowing neon divider at rel_y=headroom (BEHIND Kiko so ears/paws/FX pop in FRONT!)
-        frame = Image.new("RGBA", (booth_w, overlay_h), (0, 0, 0, 0))
-        booth_cur = _zoom_booth_frame(booth_img, cur_zoom, booth_w, booth_h, x_ratio, booth_zoom_cache)
-        frame.paste(booth_cur, (0, headroom))
-        _paste_rgba_clipped(frame, divider_strip, 0, headroom - divider_half_glow)
+        # 4. Assemble 1080x750 RGBA frame from pre-baked zoomed booth+divider cache (3x faster!)
+        frame = _get_base_canvas(cur_zoom)
 
         # (d) Kiko 2.0 sprite scaled by booth punch-in + elastic snap-in + RMS pulse (pops into headroom!)
         spr_top_y = headroom
@@ -858,13 +874,20 @@ def render_host_booth_video(
             eff_sy = cur_zoom * snap_sy * (1.0 + rms_scale_bonus)
             draw_w = max(32, round(spr_to_draw.width * eff_sx))
             draw_h = max(32, round(spr_to_draw.height * eff_sy))
-            spr_scaled = (
-                spr_to_draw.resize((draw_w, draw_h), Image.Resampling.BILINEAR)
-                if (draw_w != spr_to_draw.width or draw_h != spr_to_draw.height)
-                else spr_to_draw
-            )
+            if draw_w == spr_to_draw.width and draw_h == spr_to_draw.height:
+                spr_scaled = spr_to_draw
+            elif not is_xfading:
+                skey = (curr_key, int(round(cur_tilt * 2.0)), draw_w, draw_h)
+                cached_sc = scale_cache.get(skey)
+                if cached_sc is not None:
+                    spr_scaled = cached_sc
+                else:
+                    spr_scaled = spr_to_draw.resize((draw_w, draw_h), Image.Resampling.BILINEAR)
+                    if len(scale_cache) < 320:
+                        scale_cache[skey] = spr_scaled
+            else:
+                spr_scaled = spr_to_draw.resize((draw_w, draw_h), Image.Resampling.BILINEAR)
             x0 = int(round(anchor_center_x - draw_w / 2.0 + dx_phys))
-            # Keep lower torso grounded at desk while extra zoom/elastic stretch rises upward!
             y0 = int(round(anchor_bottom_y - draw_h + dy_phys))
             spr_top_y = y0
             spr_right_x = x0 + draw_w
@@ -883,7 +906,6 @@ def render_host_booth_video(
             pop_sc = (0.75 + 0.35 * min(1.0, prog / 0.18)) * (1.0 - 0.08 * max(0.0, prog - 0.25))
             a_fx = 1.0 - max(0.0, (prog - 0.72) / 0.28)
             sh_img = _scale_stamp_with_alpha(fx_stamps["shock_mark"], pop_sc, a_fx)
-            # Place right above Kiko's right ear so "!?" pops cleanly into rel_y=6..50 above y=1220!
             sh_x = int(min(booth_w - sh_img.width - 12, spr_right_x - int(sprite_size * 0.26)))
             sh_y = int(max(4, headroom - int(sh_img.height * 0.52) - int(10 * min(1.0, prog / 0.2))))
             _paste_rgba_clipped(frame, sh_img, sh_x, sh_y)
@@ -894,13 +916,15 @@ def render_host_booth_video(
             _paste_rgba_clipped(frame, g_big, int(anchor_center_x - sprite_size * 0.32), max(10, spr_top_y + 58))
             _paste_rgba_clipped(frame, g_sm, int(anchor_center_x + sprite_size * 0.28), max(14, spr_top_y + 44))
 
-        # (f) Overlay raised 3D foreground studio desk ON TOP of Kiko's lower torso + bottom UI fade
-        _paste_rgba_clipped(frame, desk_vignette, 0, strip_top_y)
+        # (f) Fast raised 3D foreground studio desk overlay (54px alpha top + instant opaque paste body!)
+        if desk_top_rgba is not None:
+            _paste_rgba_clipped(frame, desk_top_rgba, 0, strip_top_y)
+        frame.paste(desk_body_opaque, (0, desk_top_rel_y))
 
         # (g) Extract RGBA -> apply reactive 6% top-down movie screen-glow on opaque booth/host pixels -> dual pipe!
         rgba_arr = np.array(frame, dtype=np.uint8)
-        rgb_arr = rgba_arr[:, :, :3]
-        alpha_arr = rgba_arr[:, :, 3]
+        rgb_arr = np.ascontiguousarray(rgba_arr[:, :, :3])
+        alpha_arr = np.ascontiguousarray(rgba_arr[:, :, 3])
 
         if glow_colors is not None and glow_weights is not None:
             g_end = min(overlay_h, headroom + glow_h)

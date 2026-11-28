@@ -9,6 +9,7 @@ Run via:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import math
 import sys
 from pathlib import Path
@@ -328,10 +329,8 @@ def _setup_cycles(width: int, height: int, samples: int, transparent: bool) -> N
     scene.cycles.diffuse_bounces = 3
     scene.cycles.glossy_bounces = 3
     scene.cycles.use_denoising = True
-    try:
+    with contextlib.suppress(Exception):
         scene.cycles.denoiser = "OPENIMAGEDENOISE"
-    except Exception:
-        pass
     scene.render.resolution_x = width
     scene.render.resolution_y = height
     scene.render.resolution_percentage = 100

@@ -89,7 +89,7 @@ def test_compose_chapter_short_mock(tmp_path: Path) -> None:
 def test_generate_commentary_fails_fast_without_api_key(tmp_path: Path) -> None:
     """When mock_llm=False and GEMINI_API_KEY is missing, raise RuntimeError instead of mock fallback."""
     ch = ChapterSlice(part_number=1, total_parts=3, start_sec=0.0, end_sec=80.0, duration_sec=80.0)
-    with patch.dict(os.environ, {"GEMINI_API_KEY": ""}, clear=False), pytest.raises(
+    with patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_API_KEY1": ""}, clear=False), pytest.raises(
         RuntimeError, match="GEMINI_API_KEY"
     ):
         chapter_commentator.generate_chapter_commentary(

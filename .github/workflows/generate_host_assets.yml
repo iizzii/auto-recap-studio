@@ -17,6 +17,7 @@ jobs:
       contents: write
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_API_KEY1: ${{ secrets.GEMINI_API_KEY1 }}
       PYTHONUNBUFFERED: "1"
 
     steps:
@@ -28,6 +29,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Install Blender 3D Cycles (fallback if Gemini image quota is 0)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends blender
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt

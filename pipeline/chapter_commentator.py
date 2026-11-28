@@ -109,8 +109,12 @@ def call_gemini_structured(
     NEVER falls back to mock data. Raises a loud RuntimeError containing the exact
     HTTP status code, model name, and error snippet if all retries fail.
     """
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
+    api_keys: list[tuple[str, str]] = []
+    for env_k in ("GEMINI_API_KEY", "GEMINI_API_KEY1"):
+        val = os.environ.get(env_k, "").strip()
+        if val and all(val != existing for _, existing in api_keys):
+            api_keys.append((env_k, val))
+    if not api_keys:
         raise RuntimeError(
             f"{label}: GEMINI_API_KEY is missing while mock_llm=False. "
             "Silent mock fallback is permanently disabled."
@@ -130,7 +134,10 @@ def call_gemini_structured(
             models_to_try.append(m_name)
 
     temperature = float(llm_cfg.get("temperature", 0.7))
-    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=120_000))
+    clients = [
+        (lbl, genai.Client(api_key=k_val, http_options=types.HttpOptions(timeout=120_000)))
+        for lbl, k_val in api_keys
+    ]
 
     contents: list[Any] = [prompt]
     for img_path in images:
@@ -141,45 +148,53 @@ def call_gemini_structured(
     backoff_delays = (4.0, 10.0, 22.0)
     errors_seen: list[str] = []
 
-    for model_name in models_to_try:
-        for attempt in range(4):  # 1 initial + 3 retries
-            try:
-                log.info("%s: calling Gemini model=%s (attempt %d/4, images=%d)", label, model_name, attempt + 1, len(contents) - 1)
-                resp = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        temperature=temperature,
-                        response_mime_type="application/json",
-                        response_schema=wire_schema,
-                    ),
-                )
-                raw_text = (resp.text or "").strip()
-                if not raw_text:
-                    raise RuntimeError(f"Empty response text from model={model_name}")
-                return json.loads(_strip_json_fences(raw_text))
-            except Exception as exc:
-                status = _extract_status_code(exc)
-                snippet = str(exc).replace("\n", " ")[:280]
-                err_line = f"model={model_name} status={status} attempt={attempt + 1}/4 detail={snippet}"
-                errors_seen.append(err_line)
+    for key_lbl, client in clients:
+        for model_name in models_to_try:
+            for attempt in range(4):  # 1 initial + 3 retries
+                try:
+                    log.info(
+                        "%s: calling Gemini model=%s (%s, attempt %d/4, images=%d)",
+                        label,
+                        model_name,
+                        key_lbl,
+                        attempt + 1,
+                        len(contents) - 1,
+                    )
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            temperature=temperature,
+                            response_mime_type="application/json",
+                            response_schema=wire_schema,
+                        ),
+                    )
+                    raw_text = (resp.text or "").strip()
+                    if not raw_text:
+                        raise RuntimeError(f"Empty response text from model={model_name}")
+                    return json.loads(_strip_json_fences(raw_text))
+                except Exception as exc:
+                    status = _extract_status_code(exc)
+                    snippet = str(exc).replace("\n", " ")[:280]
+                    err_line = f"key={key_lbl} model={model_name} status={status} attempt={attempt + 1}/4 detail={snippet}"
+                    errors_seen.append(err_line)
 
-                if status == "404" or "NOT_FOUND" in str(exc):
-                    log.warning("%s: %s -> moving to next model", label, err_line)
+                    if status == "404" or "NOT_FOUND" in str(exc):
+                        log.warning("%s: %s -> moving to next model", label, err_line)
+                        break
+
+                    is_retryable = status in {"429", "500", "502", "503", "504"} or any(
+                        tok in str(exc).upper()
+                        for tok in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMED OUT", "JSON")
+                    )
+                    if is_retryable and attempt < 3:
+                        delay = backoff_delays[attempt] + random.uniform(0.0, 1.5)
+                        log.warning("%s: retryable error (%s); sleeping %.1fs", label, err_line, delay)
+                        time.sleep(delay)
+                        continue
+
+                    log.error("%s: non-retryable or exhausted on %s", label, err_line)
                     break
-
-                is_retryable = status in {"429", "500", "502", "503", "504"} or any(
-                    tok in str(exc).upper()
-                    for tok in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMED OUT", "JSON")
-                )
-                if is_retryable and attempt < 3:
-                    delay = backoff_delays[attempt] + random.uniform(0.0, 1.5)
-                    log.warning("%s: retryable error (%s); sleeping %.1fs", label, err_line, delay)
-                    time.sleep(delay)
-                    continue
-
-                log.error("%s: non-retryable or exhausted on %s", label, err_line)
-                break
 
     summary = " | ".join(errors_seen[-4:])
     raise RuntimeError(

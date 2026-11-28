@@ -8,7 +8,8 @@ import io
 import logging
 import os
 import random
-import sys
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -43,15 +44,16 @@ MOUTHS: tuple[str, ...] = ("closed", "half", "open")
 
 GEMINI_IMAGE_MODELS: tuple[str, ...] = (
     "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
     "gemini-2.5-flash-image-preview",
     "gemini-2.0-flash-exp-image-generation",
-    "gemini-2.0-flash-preview-image-generation",
 )
 
 IMAGEN_FALLBACK_MODELS: tuple[str, ...] = (
-    "imagen-3.0-generate-002",
+    "imagen-4.0-fast-generate-001",
     "imagen-4.0-generate-001",
-    "imagen-3.0-generate-001",
+    "imagen-3.0-generate-002",
 )
 
 MASTER_PORTRAIT_PROMPT = (
@@ -134,15 +136,52 @@ def _extract_image_from_response(resp: object) -> Image.Image | None:
     return None
 
 
+def _discover_image_models(client: object) -> tuple[list[str], list[str]]:
+    """Query client.models.list() to discover live Gemini image-gen and Imagen models."""
+    gen_models: list[str] = list(GEMINI_IMAGE_MODELS)
+    im_models: list[str] = list(IMAGEN_FALLBACK_MODELS)
+    try:
+        discovered_img: list[str] = []
+        discovered_im: list[str] = []
+        for m in client.models.list():  # type: ignore[attr-defined]
+            raw_name = str(getattr(m, "name", "") or "")
+            short = raw_name.removeprefix("models/")
+            low = short.lower()
+            if "embedding" in low or "veo" in low:
+                continue
+            if "imagen" in low:
+                discovered_im.append(short)
+            elif "image" in low or "banana" in low:
+                discovered_img.append(short)
+        log.info("Discovered Gemini image models: %s | Imagen models: %s", discovered_img, discovered_im)
+        for name in discovered_img:
+            if name not in gen_models:
+                gen_models.append(name)
+        for name in discovered_im:
+            if name not in im_models:
+                im_models.append(name)
+    except Exception as exc:
+        log.warning("models.list() inspection skipped: %s", str(exc)[:180])
+    return gen_models, im_models
+
+
+def _is_zero_quota_error(msg: str) -> bool:
+    low = msg.lower()
+    return ("limit: 0" in low) or ("limit:0" in low) or ("free_tier" in low and "quota" in low)
+
+
 def _generate_image_gemini(
-    client: object,
+    clients: list[tuple[str, object]],
     prompt: str,
     *,
+    gemini_models: list[str],
+    imagen_models: list[str],
+    dead_pairs: set[tuple[str, str]],
     ref_png_bytes: bytes | None = None,
     aspect_ratio: str = "1:1",
     label: str = "asset",
 ) -> Image.Image:
-    """Generate or edit an image via Gemini native image models, falling back to Imagen if needed."""
+    """Generate or edit an image via Gemini native image models across keys, falling back to Imagen."""
     from google.genai import types
 
     contents: list[object] = []
@@ -150,58 +189,71 @@ def _generate_image_gemini(
         contents.append(types.Part.from_bytes(data=ref_png_bytes, mime_type="image/png"))
     contents.append(prompt)
 
-    backoff = (4.0, 10.0, 22.0)
+    backoff = (4.0, 10.0, 20.0)
     errors: list[str] = []
 
-    for model_name in GEMINI_IMAGE_MODELS:
-        for attempt in range(4):
-            try:
-                log.info("%s: calling %s (attempt %d/4)", label, model_name, attempt + 1)
-                resp = client.models.generate_content(  # type: ignore[attr-defined]
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        response_modalities=["TEXT", "IMAGE"],
-                    ),
-                )
-                img = _extract_image_from_response(resp)
-                if img is not None:
-                    return img
-                raise RuntimeError(f"Model {model_name} returned no inline image part")
-            except Exception as exc:
-                msg = str(exc).replace("\n", " ")[:240]
-                errors.append(f"{model_name}[{attempt + 1}]: {msg}")
-                if "404" in msg or "NOT_FOUND" in msg or "not supported" in msg.lower():
-                    log.warning("%s: %s unavailable -> next model", label, model_name)
+    for key_lbl, client in clients:
+        for model_name in gemini_models:
+            if (key_lbl, model_name) in dead_pairs:
+                continue
+            for attempt in range(4):
+                try:
+                    log.info("%s: calling %s (%s, attempt %d/4)", label, model_name, key_lbl, attempt + 1)
+                    resp = client.models.generate_content(  # type: ignore[attr-defined]
+                        model=model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            response_modalities=["TEXT", "IMAGE"],
+                        ),
+                    )
+                    img = _extract_image_from_response(resp)
+                    if img is not None:
+                        return img
+                    raise RuntimeError(f"Model {model_name} returned no inline image part")
+                except Exception as exc:
+                    full_msg = str(exc).replace("\n", " ")
+                    errors.append(f"{key_lbl}/{model_name}[{attempt + 1}]: {full_msg[:260]}")
+                    if "404" in full_msg or "NOT_FOUND" in full_msg or "not supported" in full_msg.lower():
+                        log.warning("%s: %s/%s unavailable (404) -> skipping", label, key_lbl, model_name)
+                        dead_pairs.add((key_lbl, model_name))
+                        break
+                    if _is_zero_quota_error(full_msg):
+                        log.warning("%s: %s/%s has zero image quota (%s) -> skipping", label, key_lbl, model_name, full_msg[:220])
+                        dead_pairs.add((key_lbl, model_name))
+                        break
+                    if attempt < 3:
+                        delay = backoff[attempt] + random.uniform(0.0, 1.5)
+                        log.warning("%s: transient error on %s/%s (%s); retrying in %.1fs", label, key_lbl, model_name, full_msg[:180], delay)
+                        time.sleep(delay)
+                        continue
                     break
-                if attempt < 3:
-                    delay = backoff[attempt] + random.uniform(0.0, 1.5)
-                    log.warning("%s: transient error (%s); retrying in %.1fs", label, msg[:120], delay)
-                    time.sleep(delay)
-                    continue
-                break
 
-    # Fallback to Imagen text-to-image if native Gemini image models are unavailable
     if ref_png_bytes is None:
-        for im_model in IMAGEN_FALLBACK_MODELS:
-            try:
-                log.info("%s: fallback Imagen %s", label, im_model)
-                im_resp = client.models.generate_images(  # type: ignore[attr-defined]
-                    model=im_model,
-                    prompt=prompt,
-                    config=types.GenerateImagesConfig(
-                        number_of_images=1,
-                        aspect_ratio=aspect_ratio,
-                        output_mime_type="image/png",
-                    ),
-                )
-                gen_imgs = getattr(im_resp, "generated_images", None) or []
-                if gen_imgs and getattr(gen_imgs[0], "image", None) and gen_imgs[0].image.image_bytes:
-                    return Image.open(io.BytesIO(gen_imgs[0].image.image_bytes)).convert("RGBA")
-            except Exception as exc:
-                errors.append(f"{im_model}: {str(exc)[:180]}")
+        for key_lbl, client in clients:
+            for im_model in imagen_models:
+                if (key_lbl, im_model) in dead_pairs:
+                    continue
+                try:
+                    log.info("%s: fallback Imagen %s (%s)", label, im_model, key_lbl)
+                    im_resp = client.models.generate_images(  # type: ignore[attr-defined]
+                        model=im_model,
+                        prompt=prompt,
+                        config=types.GenerateImagesConfig(
+                            number_of_images=1,
+                            aspect_ratio=aspect_ratio,
+                            output_mime_type="image/png",
+                        ),
+                    )
+                    gen_imgs = getattr(im_resp, "generated_images", None) or []
+                    if gen_imgs and getattr(gen_imgs[0], "image", None) and gen_imgs[0].image.image_bytes:
+                        return Image.open(io.BytesIO(gen_imgs[0].image.image_bytes)).convert("RGBA")
+                except Exception as exc:
+                    full_msg = str(exc).replace("\n", " ")
+                    errors.append(f"{key_lbl}/{im_model}: {full_msg[:220]}")
+                    if "404" in full_msg or "400" in full_msg or "403" in full_msg or _is_zero_quota_error(full_msg):
+                        dead_pairs.add((key_lbl, im_model))
 
-    raise RuntimeError(f"Image generation failed for '{label}': {' | '.join(errors[-4:])}")
+    raise RuntimeError(f"Gemini image generation unavailable for '{label}': {' | '.join(errors[-4:])}")
 
 
 def chroma_key_and_align(
@@ -333,17 +385,26 @@ def chroma_key_and_align(
 
 
 def _generate_valid_sprite(
-    client: object,
+    clients: list[tuple[str, object]],
     prompt: str,
     *,
+    gemini_models: list[str],
+    imagen_models: list[str],
+    dead_pairs: set[tuple[str, str]],
     ref_png_bytes: bytes | None,
     label: str,
 ) -> tuple[Image.Image, bytes]:
     """Generate, chroma-key, validate opaque ratio, and return (aligned_640_rgba, raw_png_bytes)."""
+    aligned = Image.new("RGBA", (SPRITE_SIZE, SPRITE_SIZE), (0, 0, 0, 0))
+    fg_ratio = 0.0
+    raw = aligned
     for attempt in range(3):
         raw = _generate_image_gemini(
-            client,
+            clients,
             prompt,
+            gemini_models=gemini_models,
+            imagen_models=imagen_models,
+            dead_pairs=dead_pairs,
             ref_png_bytes=ref_png_bytes,
             aspect_ratio="1:1",
             label=f"{label}_gen{attempt + 1}",
@@ -361,12 +422,42 @@ def _generate_valid_sprite(
         )
         time.sleep(2.0)
 
-    # Return last best effort only if non-empty
     if fg_ratio > 0.05:
         buf = io.BytesIO()
         raw.convert("RGB").save(buf, format="PNG")
         return aligned, buf.getvalue()
     raise RuntimeError(f"Sprite '{label}' failed chroma-key validation (fg_ratio={fg_ratio:.3f}).")
+
+
+def _run_blender_3d_fallback(sprites_dir: Path, booths_dir: Path, samples: int = 28) -> None:
+    """Render full 25-sprite + 4-booth 3D Pixar-style Kiko pack in headless Blender Cycles."""
+    blender_bin = shutil.which("blender")
+    if not blender_bin:
+        raise RuntimeError(
+            "All Gemini image models returned 0 quota / 404 AND 'blender' is not installed for 3D fallback."
+        )
+    script_path = Path(__file__).resolve().parent / "render_kiko_blender_3d.py"
+    log.warning(
+        "Gemini image generation quota unavailable across configured keys -> "
+        "rendering true 3D Pixar-style Kiko pack + 4 bokeh studio booths via headless Blender Cycles (%s)...",
+        blender_bin,
+    )
+    cmd = [
+        blender_bin,
+        "--background",
+        "--python-exit-code",
+        "1",
+        "--python",
+        str(script_path),
+        "--",
+        "--sprites-dir",
+        str(sprites_dir),
+        "--booths-dir",
+        str(booths_dir),
+        "--samples",
+        str(samples),
+    ]
+    subprocess.run(cmd, check=True)
 
 
 def _build_preview_sheet(sprites_dir: Path, booths_dir: Path, out_jpg: Path) -> Path:
@@ -385,7 +476,6 @@ def _build_preview_sheet(sprites_dir: Path, booths_dir: Path, out_jpg: Path) -> 
     draw = ImageDraw.Draw(sheet)
     draw.text((16, 10), f"KIKO 3D ASSET PACK ({len(sprite_files)} sprites + {len(booth_files)} booths)", fill=(255, 216, 77))
 
-    # Draw dark studio backdrop squares behind each RGBA sprite to inspect chroma-key edge quality
     for idx, sp in enumerate(sprite_files):
         r, c = divmod(idx, cols)
         x0 = c * tile
@@ -423,123 +513,176 @@ def _needs_regen(path: Path, expected_size: tuple[int, int], force: bool) -> boo
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate 3D Pixar-style Kiko sprites & genre booths via Gemini.")
+    parser = argparse.ArgumentParser(description="Generate 3D Pixar-style Kiko sprites & genre booths.")
     parser.add_argument("--force", action="store_true", help="Regenerate all sprites and booths even if present.")
+    parser.add_argument("--blender-samples", type=int, default=28, help="Cycles samples if Blender 3D renderer runs.")
     args = parser.parse_args()
 
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        log.error("GEMINI_API_KEY is required to generate 3D host assets.")
-        sys.exit(1)
+    keys: list[tuple[str, str]] = []
+    for env_name in ("GEMINI_API_KEY", "GEMINI_API_KEY1"):
+        val = os.environ.get(env_name, "").strip()
+        if val and all(val != existing for _, existing in keys):
+            keys.append((env_name, val))
 
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=120_000))
     SPRITES_DIR.mkdir(parents=True, exist_ok=True)
     BOOTHS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. Generate Master Reference Portrait (neutral_closed) on solid #00FF00 green screen
+    clients: list[tuple[str, object]] = []
+    gemini_models = list(GEMINI_IMAGE_MODELS)
+    imagen_models = list(IMAGEN_FALLBACK_MODELS)
+    dead_pairs: set[tuple[str, str]] = set()
+
+    if keys:
+        from google import genai
+        from google.genai import types
+
+        for lbl, k_val in keys:
+            c = genai.Client(api_key=k_val, http_options=types.HttpOptions(timeout=120_000))
+            clients.append((lbl, c))
+        gemini_models, imagen_models = _discover_image_models(clients[0][1])
+
+    # 1. Try Tier 1: Gemini Native Image Generation + Reference-Conditioned Editing
+    used_blender_fallback = False
     master_path = SPRITES_DIR / "neutral_closed.png"
     master_raw_cache = Path("/tmp/kiko_master_raw.png")
 
-    if _needs_regen(master_path, (SPRITE_SIZE, SPRITE_SIZE), args.force) or not master_raw_cache.exists():
-        log.info("Generating Master 3D Pixar Kiko portrait (neutral_closed)...")
-        master_img, master_raw_bytes = _generate_valid_sprite(
-            client, MASTER_PORTRAIT_PROMPT, ref_png_bytes=None, label="neutral_closed"
-        )
-        master_img.save(master_path, format="PNG")
-        master_raw_cache.write_bytes(master_raw_bytes)
-        time.sleep(1.5)
-    else:
-        master_raw_bytes = master_raw_cache.read_bytes()
-        log.info("Reusing existing 640x640 master sprite %s", master_path)
+    try:
+        if not clients:
+            raise RuntimeError("No GEMINI_API_KEY configured.")
 
-    # 2. Generate all 8 emotions x closed/open + blink consistently from Master Reference
-    for emotion in EMOTIONS:
-        for mouth in ("closed", "open"):
-            if emotion == "neutral" and mouth == "closed":
-                continue
-            out_path = SPRITES_DIR / f"{emotion}_{mouth}.png"
-            if not _needs_regen(out_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
-                log.info("Skipping existing 640x640 sprite %s", out_path.name)
-                continue
-            edit_prompt = (
-                "Using this EXACT same 3D Pixar-style orange-ginger tabby cat character Kiko from the reference image, "
-                "preserve the IDENTICAL camera distance, head scale, shoulder position, ginger-and-cream tabby fur pattern, "
-                "matte-charcoal headphones with cyan-teal LED rings, black boom microphone, studio lighting, and "
-                "100% solid flat shadowless pure chroma-key green (#00FF00) background. "
-                f"Modify ONLY Kiko's facial expression, pose, and mouth to match:\n"
-                f"- Expression: {EMOTION_DIRECTIONS[emotion]}.\n"
-                f"- Mouth: {MOUTH_DIRECTIONS[mouth]}.\n"
-                "Keep clean fur silhouette against pure flat #00FF00 green with NO desk, NO props, NO text."
+        if _needs_regen(master_path, (SPRITE_SIZE, SPRITE_SIZE), args.force) or not master_raw_cache.exists():
+            log.info("Generating Master 3D Pixar Kiko portrait (neutral_closed) via Gemini...")
+            master_img, master_raw_bytes = _generate_valid_sprite(
+                clients,
+                MASTER_PORTRAIT_PROMPT,
+                gemini_models=gemini_models,
+                imagen_models=imagen_models,
+                dead_pairs=dead_pairs,
+                ref_png_bytes=None,
+                label="neutral_closed",
             )
-            spr_img, _ = _generate_valid_sprite(
-                client, edit_prompt, ref_png_bytes=master_raw_bytes, label=f"{emotion}_{mouth}"
+            master_img.save(master_path, format="PNG")
+            master_raw_cache.write_bytes(master_raw_bytes)
+            time.sleep(1.5)
+        else:
+            master_raw_bytes = master_raw_cache.read_bytes()
+            log.info("Reusing existing 640x640 master sprite %s", master_path)
+
+        # 2. Generate all 8 emotions x closed/open consistently from Master Reference
+        for emotion in EMOTIONS:
+            for mouth in ("closed", "open"):
+                if emotion == "neutral" and mouth == "closed":
+                    continue
+                out_path = SPRITES_DIR / f"{emotion}_{mouth}.png"
+                if not _needs_regen(out_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
+                    log.info("Skipping existing 640x640 sprite %s", out_path.name)
+                    continue
+                edit_prompt = (
+                    "Using this EXACT same 3D Pixar-style orange-ginger tabby cat character Kiko from the reference image, "
+                    "preserve the IDENTICAL camera distance, head scale, shoulder position, ginger-and-cream tabby fur pattern, "
+                    "matte-charcoal headphones with cyan-teal LED rings, black boom microphone, studio lighting, and "
+                    "100% solid flat shadowless pure chroma-key green (#00FF00) background. "
+                    f"Modify ONLY Kiko's facial expression, pose, and mouth to match:\n"
+                    f"- Expression: {EMOTION_DIRECTIONS[emotion]}.\n"
+                    f"- Mouth: {MOUTH_DIRECTIONS[mouth]}.\n"
+                    "Keep clean fur silhouette against pure flat #00FF00 green with NO desk, NO props, NO text."
+                )
+                spr_img, _ = _generate_valid_sprite(
+                    clients,
+                    edit_prompt,
+                    gemini_models=gemini_models,
+                    imagen_models=imagen_models,
+                    dead_pairs=dead_pairs,
+                    ref_png_bytes=master_raw_bytes,
+                    label=f"{emotion}_{mouth}",
+                )
+                spr_img.save(out_path, format="PNG")
+                time.sleep(1.5)
+
+        # 3. Generate natural blink sprite
+        blink_path = SPRITES_DIR / "blink.png"
+        if _needs_regen(blink_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
+            blink_prompt = (
+                "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko from the reference image, keep the IDENTICAL "
+                "pose, head position, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
+                "Change ONLY the eyes so BOTH eyes are softly gently closed in a natural mid-blink with soft curved dark lashes, "
+                "and keep the relaxed friendly closed cat smile."
             )
-            spr_img.save(out_path, format="PNG")
+            blink_img, _ = _generate_valid_sprite(
+                clients,
+                blink_prompt,
+                gemini_models=gemini_models,
+                imagen_models=imagen_models,
+                dead_pairs=dead_pairs,
+                ref_png_bytes=master_raw_bytes,
+                label="blink",
+            )
+            blink_img.save(blink_path, format="PNG")
             time.sleep(1.5)
 
-    # 3. Generate natural blink sprite
-    blink_path = SPRITES_DIR / "blink.png"
-    if _needs_regen(blink_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
-        blink_prompt = (
-            "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko from the reference image, keep the IDENTICAL "
-            "pose, head position, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
-            "Change ONLY the eyes so BOTH eyes are softly gently closed in a natural mid-blink with soft curved dark lashes, "
-            "and keep the relaxed friendly closed cat smile."
-        )
-        blink_img, _ = _generate_valid_sprite(
-            client, blink_prompt, ref_png_bytes=master_raw_bytes, label="blink"
-        )
-        blink_img.save(blink_path, format="PNG")
-        time.sleep(1.5)
+        # 4. Generate half-open talking mouth sprites for all 8 emotions
+        for emotion in EMOTIONS:
+            half_path = SPRITES_DIR / f"{emotion}_half.png"
+            if not _needs_regen(half_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
+                continue
+            closed_p = SPRITES_DIR / f"{emotion}_closed.png"
+            open_p = SPRITES_DIR / f"{emotion}_open.png"
+            try:
+                half_prompt = (
+                    "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko from the reference image, keep the IDENTICAL "
+                    "camera framing, head position, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
+                    f"Match this expression: {EMOTION_DIRECTIONS[emotion]}. "
+                    f"Mouth shape: {MOUTH_DIRECTIONS['half']}. "
+                    "Keep clean silhouette on pure flat #00FF00 green with NO text or props."
+                )
+                half_img, _ = _generate_valid_sprite(
+                    clients,
+                    half_prompt,
+                    gemini_models=gemini_models,
+                    imagen_models=imagen_models,
+                    dead_pairs=dead_pairs,
+                    ref_png_bytes=master_raw_bytes,
+                    label=f"{emotion}_half",
+                )
+                half_img.save(half_path, format="PNG")
+                time.sleep(1.2)
+            except Exception as exc:
+                log.warning("%s_half Gemini generation fell back to smooth blend (%s)", emotion, exc)
+                c_im = Image.open(closed_p).convert("RGBA")
+                o_im = Image.open(open_p).convert("RGBA")
+                Image.blend(c_im, o_im, 0.5).save(half_path, format="PNG")
 
-    # 4. Generate half-open talking mouth sprites for all 8 emotions (with aligned fallback if API rate-limits)
-    for emotion in EMOTIONS:
-        half_path = SPRITES_DIR / f"{emotion}_half.png"
-        if not _needs_regen(half_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
-            continue
-        closed_p = SPRITES_DIR / f"{emotion}_closed.png"
-        open_p = SPRITES_DIR / f"{emotion}_open.png"
-        try:
-            half_prompt = (
-                "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko from the reference image, keep the IDENTICAL "
-                "camera framing, head position, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
-                f"Match this expression: {EMOTION_DIRECTIONS[emotion]}. "
-                f"Mouth shape: {MOUTH_DIRECTIONS['half']}. "
-                "Keep clean silhouette on pure flat #00FF00 green with NO text or props."
+        # 5. Generate 4 lush 3D Pixar-style genre broadcast booths (1080x900)
+        for genre, b_prompt in BOOTH_PROMPTS.items():
+            b_path = BOOTHS_DIR / f"{genre}.png"
+            if not _needs_regen(b_path, BOOTH_SIZE, args.force):
+                log.info("Skipping existing booth %s", b_path.name)
+                continue
+            raw_booth = _generate_image_gemini(
+                clients,
+                b_prompt,
+                gemini_models=gemini_models,
+                imagen_models=imagen_models,
+                dead_pairs=dead_pairs,
+                ref_png_bytes=None,
+                aspect_ratio="4:3",
+                label=f"booth_{genre}",
             )
-            half_img, _ = _generate_valid_sprite(
-                client, half_prompt, ref_png_bytes=master_raw_bytes, label=f"{emotion}_half"
-            )
-            half_img.save(half_path, format="PNG")
-            time.sleep(1.2)
-        except Exception as exc:
-            log.warning("%s_half Gemini generation fell back to smooth blend (%s)", emotion, exc)
-            c_im = Image.open(closed_p).convert("RGBA")
-            o_im = Image.open(open_p).convert("RGBA")
-            Image.blend(c_im, o_im, 0.5).save(half_path, format="PNG")
-
-    # 5. Generate 4 lush 3D Pixar-style genre broadcast booths (1080x900)
-    for genre, b_prompt in BOOTH_PROMPTS.items():
-        b_path = BOOTHS_DIR / f"{genre}.png"
-        if not _needs_regen(b_path, BOOTH_SIZE, args.force):
-            log.info("Skipping existing booth %s", b_path.name)
-            continue
-        raw_booth = _generate_image_gemini(
-            client, b_prompt, ref_png_bytes=None, aspect_ratio="4:3", label=f"booth_{genre}"
-        )
-        fitted = ImageOps.fit(raw_booth.convert("RGB"), BOOTH_SIZE, method=Image.Resampling.LANCZOS)
-        fitted.save(b_path, format="PNG")
-        time.sleep(1.5)
+            fitted = ImageOps.fit(raw_booth.convert("RGB"), BOOTH_SIZE, method=Image.Resampling.LANCZOS)
+            fitted.save(b_path, format="PNG")
+            time.sleep(1.5)
+    except Exception as gemini_exc:
+        log.warning("Tier-1 Gemini image pipeline unavailable: %s", gemini_exc)
+        _run_blender_3d_fallback(SPRITES_DIR, BOOTHS_DIR, samples=args.blender_samples)
+        used_blender_fallback = True
 
     # 6. Build visual verification sheet & verify exact asset counts
     _build_preview_sheet(SPRITES_DIR, BOOTHS_DIR, PREVIEW_PATH)
 
     n_sprites = len(list(SPRITES_DIR.glob("*.png")))
     n_booths = len(list(BOOTHS_DIR.glob("*.png")))
-    log.info("Generated %d sprites (640x640 RGBA) and %d booths (1080x900).", n_sprites, n_booths)
+    backend = "Blender 3D Cycles" if used_blender_fallback else "Gemini Native Image AI"
+    log.info("Generated %d sprites (640x640 RGBA) and %d booths (1080x900) via %s.", n_sprites, n_booths, backend)
     if n_sprites < 25 or n_booths < 4:
         raise RuntimeError(f"Asset pack incomplete: {n_sprites} sprites (<25) or {n_booths} booths (<4).")
 

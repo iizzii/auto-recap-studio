@@ -274,12 +274,12 @@ def test_movie_stage_filter_16_9_and_cinemascope() -> None:
     assert lay_16["booth_h"] == 700
     assert lay_16["host_overlay_y"] == 1170
     assert lay_16["host_overlay_h"] == 750
-    assert 200 <= lay_16["movie_y"] and lay_16["movie_y"] + lay_16["movie_h"] <= 1050
+    assert lay_16["movie_y"] >= 200 and lay_16["movie_y"] + lay_16["movie_h"] <= 1050
 
     lay_scope = chapter_composer.compute_vertical_layout(2048, 858)
     assert lay_scope["divider_y"] == 1220
     assert 580 <= lay_scope["movie_h"] <= 660
-    assert 200 <= lay_scope["movie_y"] and lay_scope["movie_y"] + lay_scope["movie_h"] <= 1050
+    assert lay_scope["movie_y"] >= 200 and lay_scope["movie_y"] + lay_scope["movie_h"] <= 1050
 
     fc = chapter_composer.build_chapter_composite_filter_complex(
         2048,
@@ -474,7 +474,7 @@ def test_sprite_normalization_and_63_5_36_5_layout() -> None:
     assert lay["booth_h"] == 700
     assert lay["host_overlay_y"] == 1170
     assert lay["host_overlay_h"] == 750
-    assert 200 <= lay["movie_y"] and lay["movie_y"] + lay["movie_h"] <= 1050
+    assert lay["movie_y"] >= 200 and lay["movie_y"] + lay["movie_h"] <= 1050
 
     # Chest/shoulder anchor normalization aligns torso cleanly WITHOUT squishing raised paws
     ref = Image.new("RGBA", (640, 640), (0, 0, 0, 0))

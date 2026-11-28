@@ -585,6 +585,39 @@ def _synth_freeze_sfx_track(
     return out_wav
 
 
+def _speed_up_wav(
+    wav_path: Path,
+    speed: float,
+    out_wav: Path,
+    *,
+    sr: int = 48000,
+    mock_tts: bool = False,
+) -> tuple[Path, float]:
+    """Speed up a mono WAV via NumPy (when mock_tts=True) or FFmpeg atempo (live mode)."""
+    if mock_tts:
+        with wave.open(str(wav_path), "rb") as wf:
+            pcm = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32)
+        new_len = max(1, round(len(pcm) / max(0.5, speed)))
+        idx = np.linspace(0, max(0, len(pcm) - 1), new_len)
+        resampled = np.interp(idx, np.arange(len(pcm)), pcm).astype(np.int16)
+        with wave.open(str(out_wav), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(resampled.tobytes())
+        return out_wav, new_len / float(sr)
+
+    ffutil.run(
+        [
+            "ffmpeg", "-y", "-i", str(wav_path),
+            "-af", f"atempo={speed:.3f}",
+            "-ar", str(sr), "-ac", "1", "-c:a", "pcm_s16le",
+            str(out_wav),
+        ]
+    )
+    return out_wav, ffutil.duration(out_wav)
+
+
 def synthesize_timed_commentary(
     script: ChapterCommentaryScript,
     chapter_duration: float,
@@ -654,16 +687,7 @@ def synthesize_timed_commentary(
                 needed_speed = min(1.20, dur / usable_window)
                 if needed_speed > 1.01:
                     sped_wav = out_dir / f"cue_{cue.cue_id:03d}_sped.wav"
-                    ffutil.run(
-                        [
-                            "ffmpeg", "-y", "-i", str(wav_path),
-                            "-af", f"atempo={needed_speed:.3f}",
-                            "-ar", str(sr), "-ac", "1", "-c:a", "pcm_s16le",
-                            str(sped_wav),
-                        ]
-                    )
-                    wav_path = sped_wav
-                    dur = ffutil.duration(wav_path)
+                    wav_path, dur = _speed_up_wav(wav_path, needed_speed, sped_wav, sr=sr, mock_tts=mock_tts)
 
             t_exp = round(t_raw + cumulative_shift, 3)
             voice_start = round(t_exp + 0.05, 3)
@@ -713,16 +737,7 @@ def synthesize_timed_commentary(
                 needed_speed = min(max_speed, dur / avail)
                 if needed_speed > 1.01:
                     sped_wav = out_dir / f"cue_{cue.cue_id:03d}_sped.wav"
-                    ffutil.run(
-                        [
-                            "ffmpeg", "-y", "-i", str(wav_path),
-                            "-af", f"atempo={needed_speed:.3f}",
-                            "-ar", str(sr), "-ac", "1", "-c:a", "pcm_s16le",
-                            str(sped_wav),
-                        ]
-                    )
-                    wav_path = sped_wav
-                    dur = ffutil.duration(wav_path)
+                    wav_path, dur = _speed_up_wav(wav_path, needed_speed, sped_wav, sr=sr, mock_tts=mock_tts)
 
             voice_start = round(t_exp, 3)
             voice_end = round(voice_start + dur, 3)

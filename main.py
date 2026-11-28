@@ -864,6 +864,7 @@ def run_chapter_commentary(
     active_w = crop_box[0] if crop_box else int(raw_v.get("width", 1920))
     active_h = crop_box[1] if crop_box else int(raw_v.get("height", 1080))
     layout = chapter_composer.compute_vertical_layout(active_w, active_h)
+    log.info("Part %d/%d flush vertical layout (active=%dx%d, crop=%s): %s", act_plan.part_number, act_plan.total_parts, active_w, active_h, crop_box, layout)
 
     # 4. Native Gemini MP4 video+audio watching (480p 5fps 64k) in live mode; contact sheets ONLY for mock_llm
     video_proxy: Path | None = None
@@ -975,6 +976,12 @@ def run_chapter_commentary(
     )
 
     # Export per-part artifacts for multi-part series upload
+    log.info(
+        "Part %d/%d PASSED QA GATE: %s",
+        act_plan.part_number,
+        act_plan.total_parts,
+        json.dumps(qa_rep.get("metrics", {})),
+    )
     part_mp4 = out_dir / f"part{act_plan.part_number}_final_short.mp4"
     shutil.copy2(final_mp4, part_mp4)
     (out_dir / f"part{act_plan.part_number}_qa_report.json").write_text(

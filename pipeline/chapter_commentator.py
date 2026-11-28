@@ -25,27 +25,27 @@ log = logging.getLogger(__name__)
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "chapter_commentary_writer.txt"
 
 VOICE_FALLBACK_CHAIN: tuple[str, ...] = (
-    "en-US-AndrewMultilingualNeural",
     "en-US-ChristopherNeural",
     "en-US-AndrewNeural",
+    "en-US-AndrewMultilingualNeural",
 )
 
 EMOTION_VOICE_PROSODY: dict[str, tuple[str, str]] = {
-    "laughing": ("+13%", "+9Hz"),
-    "shocked": ("+14%", "+7Hz"),
-    "hyped": ("+14%", "+7Hz"),
-    "horrified": ("+11%", "+4Hz"),
-    "smug": ("+6%", "-2Hz"),
-    "facepalm": ("+6%", "-2Hz"),
-    "sad": ("-2%", "-4Hz"),
-    "neutral": ("+8%", "+1Hz"),
+    "laughing": ("+9%", "+8Hz"),
+    "shocked": ("+10%", "+7Hz"),
+    "hyped": ("+10%", "+6Hz"),
+    "horrified": ("+7%", "+4Hz"),
+    "smug": ("+2%", "-2Hz"),
+    "facepalm": ("+2%", "-2Hz"),
+    "sad": ("-4%", "-4Hz"),
+    "neutral": ("+4%", "+1Hz"),
 }
 
 _GENRE_VOICES: dict[str, tuple[str, str]] = {
-    "comedy": ("en-US-AndrewMultilingualNeural", "+10%"),
-    "horror_comedy": ("en-US-AndrewMultilingualNeural", "+10%"),
-    "action_scifi": ("en-US-AndrewMultilingualNeural", "+11%"),
-    "emotional_drama": ("en-US-AndrewMultilingualNeural", "+6%"),
+    "comedy": ("en-US-ChristopherNeural", "+7%"),
+    "horror_comedy": ("en-US-ChristopherNeural", "+7%"),
+    "action_scifi": ("en-US-ChristopherNeural", "+8%"),
+    "emotional_drama": ("en-US-ChristopherNeural", "+3%"),
 }
 
 _RESOLVED_VOICE_CACHE: str | None = None
@@ -381,7 +381,7 @@ def resolve_dialogue_collisions_and_cta(
                 used_starts.append(cue.start_sec)
                 continue
 
-            # Try nudging into the nearest OPEN_GAP within ±2.5s (preferring ±1.2s)
+            # Try nudging into the nearest OPEN_GAP within ±4.5s (strongly preferring closest)
             best_cand: float | None = None
             best_dist = 999.0
             for g in gaps:
@@ -393,7 +393,7 @@ def resolve_dialogue_collisions_and_cta(
                     if cand < 0.0 or cand > chapter_duration - 1.5:
                         continue
                     dist = abs(cand - cue.start_sec)
-                    if dist > 2.5:
+                    if dist > 4.5:
                         continue
                     if any(abs(cand - u) < 1.8 for u in used_starts):
                         continue
@@ -499,26 +499,26 @@ def validate_chapter_commentary(
             errors.append(
                 f"Expected 2-3 freeze_frame=true roast cues, got {len(freeze_cues)}."
             )
-        if len(cues) < 11:
+        if len(cues) < 12:
             errors.append(
                 f"Too few cues ({len(cues)}) for a {chapter_duration_sec:.0f}s chapter; "
-                "need 12-16 cues totaling ~160-200 words so Kiko hits 42-54% active speaking time."
+                "need 13-17 cues totaling ~195-230 words so Kiko hits 44-55% active speaking time."
             )
 
         total_words = sum(len(c.text.split()) for c in cues)
-        est_talk = sum(max(1.0, len(c.text.split()) / 3.85) for c in cues)
-        est_freeze = sum(min(2.8, max(1.2, c.freeze_duration_sec)) for c in freeze_cues)
+        est_talk = sum(max(0.95, len(c.text.split()) / 4.30) for c in cues)
+        est_freeze = sum(min(3.0, max(1.4, c.freeze_duration_sec)) for c in freeze_cues)
         est_total = max(1.0, chapter_duration_sec + est_freeze)
         est_share = est_talk / est_total
-        if est_share < 0.38:
-            needed_words = round(0.46 * est_total * 3.85)
+        if est_share < 0.42:
+            needed_words = round(0.50 * est_total * 4.30)
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<38%); "
-                f"expand to ~{needed_words} total words across 12-16 punchy cues (11-15 words each)."
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<42%); "
+                f"expand to ~{needed_words} total words across 13-17 punchy cues (12-16 words each)."
             )
-        elif est_share > 0.61:
+        elif est_share > 0.62:
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>61%); "
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>62%); "
                 "tighten cue lengths slightly so the movie breathes."
             )
 
@@ -646,7 +646,7 @@ def generate_chapter_commentary(
 
     timeline_block = dialogue_timeline.strip() or subtitles_text.strip() or "(Mostly visual / non-verbal audio)"
     headline_str = top_headline or chapter_slice.top_headline or ""
-    target_words = max(120, round(0.47 * (dur + 5.0) * 3.85))
+    target_words = max(140, round(0.50 * (dur + 8.0) * 4.30))
     cta_rule = (
         f"MANDATORY ENDING CTA TIMESTAMP: {dur - 0.15:.2f}s (freeze_frame=true, freeze_duration_sec=2.2) — AFTER final dialogue!"
         if chapter_slice.part_number < chapter_slice.total_parts
@@ -659,7 +659,7 @@ def generate_chapter_commentary(
         f"TOP_HEADLINE: {headline_str}\n"
         f"CHAPTER_DURATION_SEC: {dur:.2f}s\n"
         f"{cta_rule}\n"
-        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 12-16 cues (to hit 42-54% active time)\n"
+        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 13-17 cues (to hit 44-55% active time)\n"
         f"PREVIOUS_CLIFFHANGER: {previous_cliffhanger or 'None (Part 1 opening)'}\n"
         f"NEXT_CLIFFHANGER_GOAL: {next_cliffhanger_goal or 'Deliver a sharp final twist/payoff'}\n"
         f"OPEN_GAPS (best windows for freeze_frame=false cues):\n{gaps_str or '  (see timeline below)'}\n\n"
@@ -725,7 +725,7 @@ def generate_chapter_commentary(
         script = ChapterCommentaryScript(**data)
         if genre_hint in _GENRE_VOICES:
             script.genre = genre_hint  # type: ignore[assignment]
-        v_name, v_rate = _GENRE_VOICES.get(script.genre, ("en-US-AndrewMultilingualNeural", "+10%"))
+        v_name, v_rate = _GENRE_VOICES.get(script.genre, ("en-US-ChristopherNeural", "+7%"))
         script.voice_name = v_name
         script.voice_rate = v_rate
 
@@ -839,8 +839,9 @@ def _synth_cue_wav(
     voice_candidates = [voice, *[v for v in VOICE_FALLBACK_CHAIN if v != voice]]
     for attempt in range(4):
         cur_voice = voice_candidates[min(attempt // 2, len(voice_candidates) - 1)]
+        eff_pitch = "+0Hz" if "Multilingual" in cur_voice else pitch
         try:
-            asyncio.run(_edge_tts_to_mp3(text, cur_voice, rate, pitch, tmp_mp3))
+            asyncio.run(_edge_tts_to_mp3(text, cur_voice, rate, eff_pitch, tmp_mp3))
             if tmp_mp3.exists() and tmp_mp3.stat().st_size > 200:
                 break
             raise RuntimeError("edge-tts produced empty MP3 output")

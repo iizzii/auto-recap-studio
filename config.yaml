@@ -94,8 +94,8 @@ script:
 
 tts:
   backend: edge_tts
-  voice: en-US-AndrewMultilingualNeural
-  rate: "+10%"
+  voice: en-US-ChristopherNeural
+  rate: "+7%"
   retries: 4
   backoff_base_sec: 1.5
   trim_silence_db: -45

@@ -503,3 +503,42 @@ def test_hardened_chapter_qa_gate_catches_new_failures(tmp_path: Path) -> None:
         assert "busy_dialogue" in joined
         assert "ending cta" in joined
         assert "trailing '.' or ','" in joined
+
+
+def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -> None:
+    """Even under heavy dialogue density, total freezes stay <=4 and max overlap stays <=0.45s."""
+    cues = [
+        CommentaryCue(
+            cue_id=i + 1,
+            start_sec=round(i * 6.0, 2),
+            max_duration_sec=2.5,
+            text=f"Hold up look at move {i + 1} right before the chaos hits the campers!",
+            emphasis_word="CHAOS",
+            emotion=["smug", "shocked", "laughing", "facepalm", "horrified", "hyped"][i % 6],  # type: ignore[arg-type]
+            pause_emotion="neutral",
+            freeze_frame=(i in (2, 5, 8, 11)),
+            freeze_duration_sec=2.0 if i in (2, 5, 8, 11) else 0.0,
+        )
+        for i in range(12)
+    ]
+    script = ChapterCommentaryScript(
+        genre="horror_comedy",
+        voice_name="en-US-ChristopherNeural",
+        voice_rate="+7%",
+        chapter_title="Sprite Fright Part 1",
+        top_headline="THEY WOKE UP THE FOREST",
+        cues=cues,
+    )
+    # Dense dialogue spans every few seconds
+    busy = [(1.0, 4.5), (7.0, 10.5), (13.0, 17.5), (20.0, 25.0), (28.0, 34.0), (38.0, 44.0), (48.0, 54.0), (58.0, 64.0)]
+    gaps = [{"start_sec": 4.5, "end_sec": 7.0, "duration_sec": 2.5}, {"start_sec": 25.0, "end_sec": 28.0, "duration_sec": 3.0}, {"start_sec": 34.0, "end_sec": 38.0, "duration_sec": 4.0}]
+    resolved = chapter_commentator.resolve_dialogue_collisions_and_cta(
+        script, chapter_duration=72.0, busy_intervals=busy, open_gaps=gaps, part_number=1, total_parts=3
+    )
+    assert sum(1 for c in resolved.cues if c.freeze_frame) <= 4
+    chapter_commentator.synthesize_timed_commentary(
+        resolved, 72.0, tmp_path, {}, mock_tts=True, busy_intervals=busy
+    )
+    exp = json.loads((tmp_path / "03_timeline_expansion.json").read_text(encoding="utf-8"))
+    assert exp["freeze_count"] <= 4
+    assert exp["max_dialogue_overlap_sec"] <= 0.45

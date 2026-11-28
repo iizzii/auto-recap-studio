@@ -183,7 +183,7 @@ def call_gemini_structured(
 
     temperature = float(llm_cfg.get("temperature", 0.7))
     clients = [
-        (lbl, genai.Client(api_key=k_val, http_options=types.HttpOptions(timeout=180_000)))
+        (lbl, genai.Client(api_key=k_val, http_options=types.HttpOptions(timeout=90_000)))
         for lbl, k_val in api_keys
     ]
 
@@ -253,6 +253,10 @@ def call_gemini_structured(
                         low_exc = str(exc).lower()
                         if status == "429" and ("limit: 0" in low_exc or "perday" in low_exc or attempt >= 1):
                             log.warning("%s: quota/429 on %s/%s -> rotating to next model/key", label, key_lbl, model_name)
+                            break
+
+                        if (status in {"503", "504"} or "DEADLINE_EXCEEDED" in str(exc).upper() or "UNAVAILABLE" in str(exc).upper()) and attempt >= 1:
+                            log.warning("%s: persistent %s on %s/%s -> rotating to next model/key", label, status, key_lbl, model_name)
                             break
 
                         is_retryable = status in {"429", "500", "502", "503", "504"} or any(
@@ -332,8 +336,9 @@ def resolve_dialogue_collisions_and_cta(
     *,
     part_number: int,
     total_parts: int,
+    max_freezes: int = 4,
 ) -> ChapterCommentaryScript:
-    """Enforce zero dialogue interruption (>0.35s) and exact end-of-clip cliffhanger freeze CTA on Part < N."""
+    """Enforce zero dialogue interruption (>0.35s), max 4 freeze roasts, and exact end-of-clip CTA."""
     busy = normalize_busy_intervals(busy_intervals)
     gaps = sorted(open_gaps or [], key=lambda g: float(g.get("start_sec", 0.0)))
     cues = [c.model_copy(deep=True) for c in sorted(script.cues, key=lambda x: x.start_sec)]
@@ -354,14 +359,27 @@ def resolve_dialogue_collisions_and_cta(
         est_cta_dur = max(1.6, len(cta_cue.text.split()) / 3.85)
         cta_cue.freeze_duration_sec = round(min(2.8, max(1.8, est_cta_dur + 0.15)), 2)
 
-        # Ensure preceding cues finish cleanly ahead of the final cliffhanger line
         for c in cues:
             if c.start_sec > chapter_duration - 2.2:
                 c.start_sec = round(max(0.5, chapter_duration - 2.8), 2)
 
-    # 2. Dialogue-collision resolver on all non-freeze cues
+    # Reserve freeze budget: max 3 mid-chapter roasts + 1 CTA (=4), or max 3 on final part
+    max_non_cta_freezes = min(3, max(1, max_freezes - (1 if cta_cue is not None else 0)))
+    non_cta_freezes = 0
+    last_frz_t = -999.0
+    for c in cues:
+        if c.freeze_frame:
+            if non_cta_freezes < max_non_cta_freezes and (c.start_sec - last_frz_t) >= 8.0:
+                non_cta_freezes += 1
+                last_frz_t = c.start_sec
+            else:
+                c.freeze_frame = False
+                c.freeze_duration_sec = 0.0
+
+    # 2. Dialogue-collision resolver on all non-freeze cues (strictly respecting freeze cap)
     if busy:
         used_starts: list[float] = []
+        freeze_times: list[float] = [c.start_sec for c in cues if c.freeze_frame]
         for idx, cue in enumerate(cues):
             est_dur = max(1.1, len(cue.text.split()) / 3.85)
             if cue.freeze_frame:
@@ -373,27 +391,29 @@ def resolve_dialogue_collisions_and_cta(
                 used_starts.append(cue.start_sec)
                 continue
 
-            # Opening hook (Cue 1 near 0.0s) colliding with 0.0s dialogue -> promote to crisp 00:00 opening freeze!
-            if idx == 0 and cue.start_sec <= 0.6:
+            # Opening hook colliding with 0.0s dialogue -> promote to 00:00 opening freeze if budget permits
+            if idx == 0 and cue.start_sec <= 0.6 and non_cta_freezes < max_non_cta_freezes:
                 cue.start_sec = 0.05
                 cue.freeze_frame = True
                 cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
+                non_cta_freezes += 1
+                freeze_times.append(cue.start_sec)
                 used_starts.append(cue.start_sec)
                 continue
 
-            # Try nudging into the nearest OPEN_GAP within ±4.5s (strongly preferring closest)
+            # Try nudging into the nearest clean OPEN_GAP within ±10.0s (strongly preferring closest)
             best_cand: float | None = None
             best_dist = 999.0
             for g in gaps:
                 gs = float(g.get("start_sec", 0.0))
                 ge = float(g.get("end_sec", 0.0))
-                if ge - gs < 0.8:
+                if ge - gs < 0.7:
                     continue
-                for cand in (gs + 0.05, max(gs + 0.05, ge - est_dur - 0.05), min(ge - 0.6, max(gs + 0.05, cue.start_sec))):
+                for cand in (gs + 0.05, max(gs + 0.05, ge - est_dur - 0.05), min(ge - 0.5, max(gs + 0.05, cue.start_sec))):
                     if cand < 0.0 or cand > chapter_duration - 1.5:
                         continue
                     dist = abs(cand - cue.start_sec)
-                    if dist > 4.5:
+                    if dist > 10.0:
                         continue
                     if any(abs(cand - u) < 1.8 for u in used_starts):
                         continue
@@ -405,15 +425,20 @@ def resolve_dialogue_collisions_and_cta(
             if best_cand is not None:
                 cue.start_sec = round(best_cand, 2)
             else:
-                # Promote to crisp freeze-frame roast right AFTER the overlapping spoken line finishes!
                 ov_end = cue.start_sec
                 for bs, be in busy:
                     if be > cue.start_sec and bs < cue.start_sec + est_dur:
                         ov_end = max(ov_end, be)
-                target_t = min(chapter_duration - 1.5, ov_end + 0.06)
-                cue.start_sec = round(max(0.2, target_t), 2)
-                cue.freeze_frame = True
-                cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
+                target_t = round(max(0.2, min(chapter_duration - 1.5, ov_end + 0.06)), 2)
+                if non_cta_freezes < max_non_cta_freezes and all(abs(target_t - ft) >= 7.0 for ft in freeze_times):
+                    cue.start_sec = target_t
+                    cue.freeze_frame = True
+                    cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
+                    non_cta_freezes += 1
+                    freeze_times.append(target_t)
+                else:
+                    # Freeze budget reached: place right after the spoken line ends (no extra freeze!)
+                    cue.start_sec = target_t
             used_starts.append(cue.start_sec)
 
     if cta_cue is not None:
@@ -499,26 +524,26 @@ def validate_chapter_commentary(
             errors.append(
                 f"Expected 2-3 freeze_frame=true roast cues, got {len(freeze_cues)}."
             )
-        if len(cues) < 12:
+        if len(cues) < 11:
             errors.append(
                 f"Too few cues ({len(cues)}) for a {chapter_duration_sec:.0f}s chapter; "
-                "need 13-17 cues totaling ~195-230 words so Kiko hits 44-55% active speaking time."
+                "need 12-15 cues totaling ~155-185 words so Kiko hits 43-53% active speaking time."
             )
 
         total_words = sum(len(c.text.split()) for c in cues)
-        est_talk = sum(max(0.95, len(c.text.split()) / 4.30) for c in cues)
-        est_freeze = sum(min(3.0, max(1.4, c.freeze_duration_sec)) for c in freeze_cues)
+        est_talk = sum(max(1.0, len(c.text.split()) / 3.85) for c in cues)
+        est_freeze = sum(min(2.8, max(1.4, c.freeze_duration_sec)) for c in freeze_cues)
         est_total = max(1.0, chapter_duration_sec + est_freeze)
         est_share = est_talk / est_total
-        if est_share < 0.42:
-            needed_words = round(0.50 * est_total * 4.30)
+        if est_share < 0.39:
+            needed_words = round(0.45 * est_total * 3.85)
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<42%); "
-                f"expand to ~{needed_words} total words across 13-17 punchy cues (12-16 words each)."
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<39%); "
+                f"expand to ~{needed_words} total words across 12-15 punchy cues (11-14 words each)."
             )
-        elif est_share > 0.62:
+        elif est_share > 0.56:
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>62%); "
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>56%); "
                 "tighten cue lengths slightly so the movie breathes."
             )
 
@@ -646,7 +671,7 @@ def generate_chapter_commentary(
 
     timeline_block = dialogue_timeline.strip() or subtitles_text.strip() or "(Mostly visual / non-verbal audio)"
     headline_str = top_headline or chapter_slice.top_headline or ""
-    target_words = max(140, round(0.50 * (dur + 8.0) * 4.30))
+    target_words = max(130, round(0.45 * (dur + 6.0) * 3.85))
     cta_rule = (
         f"MANDATORY ENDING CTA TIMESTAMP: {dur - 0.15:.2f}s (freeze_frame=true, freeze_duration_sec=2.2) — AFTER final dialogue!"
         if chapter_slice.part_number < chapter_slice.total_parts
@@ -659,7 +684,7 @@ def generate_chapter_commentary(
         f"TOP_HEADLINE: {headline_str}\n"
         f"CHAPTER_DURATION_SEC: {dur:.2f}s\n"
         f"{cta_rule}\n"
-        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 13-17 cues (to hit 44-55% active time)\n"
+        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 12-15 cues (to hit 43-53% active time)\n"
         f"PREVIOUS_CLIFFHANGER: {previous_cliffhanger or 'None (Part 1 opening)'}\n"
         f"NEXT_CLIFFHANGER_GOAL: {next_cliffhanger_goal or 'Deliver a sharp final twist/payoff'}\n"
         f"OPEN_GAPS (best windows for freeze_frame=false cues):\n{gaps_str or '  (see timeline below)'}\n\n"
@@ -841,7 +866,7 @@ def _synth_cue_wav(
         cur_voice = voice_candidates[min(attempt // 2, len(voice_candidates) - 1)]
         eff_pitch = "+0Hz" if "Multilingual" in cur_voice else pitch
         try:
-            asyncio.run(_edge_tts_to_mp3(text, cur_voice, rate, eff_pitch, tmp_mp3))
+            asyncio.run(asyncio.wait_for(_edge_tts_to_mp3(text, cur_voice, rate, eff_pitch, tmp_mp3), timeout=45.0))
             if tmp_mp3.exists() and tmp_mp3.stat().st_size > 200:
                 break
             raise RuntimeError("edge-tts produced empty MP3 output")
@@ -991,7 +1016,7 @@ def synthesize_timed_commentary(
         )
         synth_cues.append((cue, raw_wav, dur))
 
-    # 2. Compute freeze-frame timeline expansion & collision-free exact placement
+    # 2. Compute freeze-frame timeline expansion & collision-free exact placement (max 4 freezes total)
     cumulative_shift = 0.0
     cursor_exp = 0.0
     last_freeze_raw = -999.0
@@ -999,34 +1024,81 @@ def synthesize_timed_commentary(
     freeze_events: list[dict[str, Any]] = []
     max_dialogue_overlap = 0.0
 
+    max_total_freezes = 4
+    last_is_freeze = bool(synth_cues and synth_cues[-1][0].freeze_frame)
+    max_before_last = max(1, max_total_freezes - (1 if last_is_freeze else 0))
+
     for idx, (cue, wav_path, dur) in enumerate(synth_cues):
         is_last = idx == len(synth_cues) - 1
         max_raw_pos = chapter_duration - 0.05 if (is_last and cue.freeze_frame) else (chapter_duration - 0.5)
         t_raw = max(0.0, min(max(0.0, max_raw_pos), float(cue.start_sec)))
 
-        # Runtime safety check: if a non-freeze cue's actual WAV overlaps > 0.35s of BUSY_DIALOGUE,
-        # tighten with mild speedup or promote cleanly to a freeze roast!
         want_freeze = (
             cue.freeze_frame
             and chapter_duration >= 10.0
-            and ((t_raw - last_freeze_raw) >= 3.0 or is_last)
+            and (is_last or (len(freeze_events) < max_before_last and (t_raw - last_freeze_raw) >= 6.0))
         )
+        skip_cue = False
+
         if not want_freeze and busy:
             t_exp_tent = max(cursor_exp, t_raw + cumulative_shift)
             raw_eff_start = max(0.0, t_exp_tent - cumulative_shift)
             ov = compute_busy_overlap(raw_eff_start, raw_eff_start + dur, busy)
             if ov > 0.35:
-                # Check if slight speedup <= max_speed keeps overlap <= 0.35s
-                fixed_by_speed = False
+                # 1. Try slight speedup <= max_speed at current timestamp
+                fixed = False
                 for test_spd in (1.08, max_speed):
                     if compute_busy_overlap(raw_eff_start, raw_eff_start + (dur / test_spd), busy) <= 0.35:
                         sped_wav = out_dir / f"cue_{cue.cue_id:03d}_fit.wav"
                         wav_path, dur = _speed_up_wav(wav_path, test_spd, sped_wav, sr=sr, mock_tts=mock_tts)
-                        fixed_by_speed = True
+                        fixed = True
                         break
-                if not fixed_by_speed and chapter_duration >= 10.0:
-                    want_freeze = True
-                    t_raw = round(min(chapter_duration - 0.15, raw_eff_start), 3)
+
+                # 2. Else wait cleanly until right after the overlapping dialogue finishes (no extra freeze!)
+                if not fixed:
+                    search_t = raw_eff_start
+                    for bs, be in busy:
+                        if be <= search_t:
+                            continue
+                        if bs >= search_t + dur:
+                            break
+                        cand_t = be + 0.05
+                        if cand_t - raw_eff_start > 9.0 or cand_t + (dur / max_speed) > chapter_duration - 0.5:
+                            break
+                        if compute_busy_overlap(cand_t, cand_t + dur, busy) <= 0.35:
+                            t_raw = round(cand_t, 3)
+                            fixed = True
+                            break
+                        if compute_busy_overlap(cand_t, cand_t + (dur / max_speed), busy) <= 0.35:
+                            sped_wav = out_dir / f"cue_{cue.cue_id:03d}_waitfit.wav"
+                            wav_path, dur = _speed_up_wav(wav_path, max_speed, sped_wav, sr=sr, mock_tts=mock_tts)
+                            t_raw = round(cand_t, 3)
+                            fixed = True
+                            break
+                        search_t = cand_t
+
+                # 3. Else promote to freeze roast ONLY if freeze budget permits
+                if not fixed:
+                    if (
+                        chapter_duration >= 10.0
+                        and len(freeze_events) < max_before_last
+                        and (raw_eff_start - last_freeze_raw) >= 6.0
+                    ):
+                        want_freeze = True
+                        t_raw = round(min(chapter_duration - 0.15, raw_eff_start), 3)
+                    else:
+                        log.warning(
+                            "Skipping colliding cue %d at %.2fs (freeze budget %d/%d full, overlap=%.2fs)",
+                            cue.cue_id,
+                            raw_eff_start,
+                            len(freeze_events),
+                            max_total_freezes,
+                            ov,
+                        )
+                        skip_cue = True
+
+        if skip_cue:
+            continue
 
         if want_freeze:
             t_exp = t_raw + cumulative_shift

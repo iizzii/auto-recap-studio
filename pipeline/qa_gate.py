@@ -25,7 +25,7 @@ def _measure_lufs(media_path: Path) -> float:
             "-i",
             str(media_path),
             "-af",
-            "ebur128=framelung=0",
+            "ebur128",
             "-f",
             "null",
             "-",

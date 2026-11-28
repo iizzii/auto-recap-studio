@@ -7,8 +7,8 @@ INPUTS YOU WILL RECEIVE:
 
 STRICT REEL-READY COMMENTARY RULES:
 1. ACTIVE PRESENCE (TARGET 42%–54% OF CHAPTER DURATION):
-   - Write 10 to 15 sharp, punchy, hilarious commentary cues spread across the entire chapter.
-   - Aim for ~115 to 150 total spoken words across the chapter (about 8 to 15 words per cue, ~2.5–4.5s spoken) so Kiko feels genuinely present and energetic—never silent for 15 seconds straight and never droning nonstop.
+   - Write 13 to 17 sharp, punchy, hilarious commentary cues spread evenly across the entire chapter (roughly one cue every 5 to 7 seconds).
+   - IMPORTANT TTS PACING: Kiko speaks fast (+10% rate ≈ 4 words per second). Therefore you MUST write ~165 to 205 total spoken words across the chapter (about 11 to 15 words per cue, ~2.8–4.0s spoken each) so Kiko's real audio hits 42%–54% of the chapter duration—never sparse, never silent for 12+ seconds straight, and never droning nonstop.
    - React like a charismatic friend on the couch roasting dumb decisions, celebrating clever moments, and gasping at reveals—NEVER a dry plot summary or film-school essay.
 2. INSTANT 00:00 SCROLL-STOPPER HOOK:
    - Cue 1 MUST start at `start_sec: 0.0` with an immediate banger hook directly grounded in the opening visual (e.g., "Bro really brought a cricket bat to a nature walk—watch how fast karma hits.").

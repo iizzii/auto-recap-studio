@@ -183,6 +183,11 @@ def call_gemini_structured(
                         log.warning("%s: %s -> moving to next model", label, err_line)
                         break
 
+                    low_exc = str(exc).lower()
+                    if status == "429" and ("limit: 0" in low_exc or "perday" in low_exc or attempt >= 1):
+                        log.warning("%s: quota/429 on %s/%s -> rotating to next model/key", label, key_lbl, model_name)
+                        break
+
                     is_retryable = status in {"429", "500", "502", "503", "504"} or any(
                         tok in str(exc).upper()
                         for tok in ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMED OUT", "JSON")
@@ -278,20 +283,28 @@ def validate_chapter_commentary(
             errors.append(
                 f"Expected 2-3 freeze_frame=true roast cues, got {len(freeze_cues)}."
             )
-        if len(cues) < 9:
-            errors.append(f"Too few cues ({len(cues)}) for a {chapter_duration_sec:.0f}s chapter; need 10-15.")
+        if len(cues) < 12:
+            errors.append(
+                f"Too few cues ({len(cues)}) for a {chapter_duration_sec:.0f}s chapter; "
+                "need 13-17 cues totaling ~165-205 words so Kiko hits 42-54% active speaking time."
+            )
 
-        est_talk = sum(max(1.2, len(c.text.split()) / 2.85) for c in cues)
+        # Edge-TTS at +9%..+11% speaks at ~3.95 words/sec after silence trimming
+        total_words = sum(len(c.text.split()) for c in cues)
+        est_talk = sum(max(1.0, len(c.text.split()) / 3.95) for c in cues)
         est_freeze = sum(min(2.8, max(1.2, c.freeze_duration_sec)) for c in freeze_cues)
         est_total = max(1.0, chapter_duration_sec + est_freeze)
         est_share = est_talk / est_total
-        if est_share < 0.34:
+        if est_share < 0.39:
+            needed_words = round(0.46 * est_total * 3.95)
             errors.append(
-                f"Estimated commentary share {est_share:.0%} is too low (<34%); add 2-3 punchy cues in OPEN_GAPs."
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<39%); "
+                f"expand to ~{needed_words} total words across 13-17 punchy cues (11-15 words each) in OPEN_GAPs and beat reactions."
             )
-        elif est_share > 0.64:
+        elif est_share > 0.61:
             errors.append(
-                f"Estimated commentary share {est_share:.0%} is too high (>64%); tighten cue lengths slightly."
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too high (>61%); "
+                "tighten cue lengths slightly so the movie breathes."
             )
 
     return errors
@@ -408,12 +421,14 @@ def generate_chapter_commentary(
 
     timeline_block = dialogue_timeline.strip() or subtitles_text.strip() or "(Mostly visual / non-verbal audio)"
     headline_str = top_headline or chapter_slice.top_headline or ""
+    target_words = max(120, round(0.47 * (dur + 5.0) * 3.95))
     meta = (
         f"WORK_TITLE: {work_title}\n"
         f"GENRE_HINT: {genre_hint or 'auto-detect'}\n"
         f"PART_NUMBER: {chapter_slice.part_number}/{chapter_slice.total_parts}\n"
         f"TOP_HEADLINE: {headline_str}\n"
         f"CHAPTER_DURATION_SEC: {dur:.1f}s\n"
+        f"TARGET_TOTAL_SPOKEN_WORDS: ~{target_words} words across 13-17 cues (mandatory to hit 42-54% active time at +10% TTS speed)\n"
         f"PREVIOUS_CLIFFHANGER: {previous_cliffhanger or 'None (Part 1 opening)'}\n"
         f"NEXT_CLIFFHANGER_GOAL: {next_cliffhanger_goal or 'Deliver a sharp final twist/payoff'}\n"
         f"OPEN_GAPS (best windows for normal freeze_frame=false cues):\n{gaps_str or '  (see timeline below)'}\n\n"
@@ -424,7 +439,7 @@ def generate_chapter_commentary(
     last_errors: list[str] = []
     prev_json = ""
 
-    for attempt in range(1, 4):
+    for attempt in range(1, 5):
         feedback = ""
         if last_errors:
             feedback = (
@@ -493,13 +508,13 @@ def generate_chapter_commentary(
             return script
         last_errors = errs
         log.warning(
-            "Chapter commentary attempt %d/3 failed validation: %s",
+            "Chapter commentary attempt %d/4 failed validation: %s",
             attempt,
             errs,
         )
 
     raise RuntimeError(
-        f"Chapter commentary failed quality validation after 3 attempts: {last_errors}"
+        f"Chapter commentary failed quality validation after 4 attempts: {last_errors}"
     )
 
 

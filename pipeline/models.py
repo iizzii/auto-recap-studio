@@ -276,7 +276,7 @@ class ReleaseCalendar365(BaseModel):
 
 HostEmotion = Literal[
     "neutral", "laughing", "shocked", "horrified",
-    "smug", "hyped", "sad", "facepalm"
+    "smug", "hyped", "sad", "facepalm", "disgusted", "suspicious"
 ]
 MovieGenre = Literal["comedy", "horror_comedy", "action_scifi", "emotional_drama"]
 

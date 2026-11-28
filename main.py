@@ -672,7 +672,7 @@ def _write_series_github_summary(slug: str, summary: dict[str, Any]) -> None:
         f"- **All Parts Passed QA:** {'YES' if summary.get('all_passed') else 'NO'}",
         f"- **Total Parts:** {summary.get('total_parts')}",
         "",
-        "| Part | Headline | Duration | Commentary % | Freezes (s) | Bleeped | Max Overlap | CTA Offset | Emotions | LUFS | QA |",
+        "| Part | Headline | Duration | Commentary % | Freezes (s) | Bleeped | Max Overlap | CTA Pad | Emotions | LUFS | QA |",
         "| :--- | :--- | ---: | ---: | :--- | :--- | ---: | ---: | ---: | ---: | :---: |",
     ]
     for p in summary.get("parts", []):
@@ -680,6 +680,7 @@ def _write_series_github_summary(slug: str, summary: dict[str, Any]) -> None:
         status = "PASS" if p.get("passed") else "FAIL"
         frz_ts = ", ".join(f"{t:.1f}s" for t in m.get("freeze_timestamps", [])) or str(m.get("freeze_count", 0))
         bleeps = ", ".join(f"{b.get('word', '')}@{b.get('start_sec', 0):.1f}s" for b in m.get("bleeped_words", [])) or "none"
+        cta_pad = m.get("cta_end_padding_sec", m.get("cta_end_offset_sec", 0.0))
         lines.append(
             f"| Part {p['part_number']}/{summary.get('total_parts')} "
             f"| {m.get('top_headline', '')} "
@@ -688,7 +689,7 @@ def _write_series_github_summary(slug: str, summary: dict[str, Any]) -> None:
             f"| {frz_ts} "
             f"| {bleeps} "
             f"| {m.get('max_dialogue_overlap_sec', 0.0):.2f}s "
-            f"| {m.get('cta_end_offset_sec', 0.0):.2f}s "
+            f"| {cta_pad:.2f}s "
             f"| {m.get('distinct_emotions_count', 0)} "
             f"| {m.get('integrated_lufs', -99):.1f} "
             f"| {status} |"
@@ -848,6 +849,7 @@ def run_chapter_commentary(
     assembled_dur = float(timeline_map["assembled_duration_sec"])
     busy_intervals = list(timeline_map.get("busy_intervals", []))
     chapter_words = list(timeline_map.get("chapter_words", []))
+    last_movie_word_end = float(timeline_map.get("last_movie_word_end_sec", 0.0))
     ch_slice = ChapterSlice(
         part_number=act_plan.part_number,
         total_parts=act_plan.total_parts,
@@ -857,16 +859,24 @@ def run_chapter_commentary(
         top_headline=act_plan.top_headline,
     )
 
-    # 3b. Detect baked-in letterbox bars & compute flush 1080x1920 vertical layout (0px gutter!)
+    # 3b. Detect baked-in letterbox bars & compute reconciled 63.5/36.5 full-bleed layout
     crop_box = None if mock_llm else chapter_composer.detect_active_crop(chapter_raw)
     raw_info = ffutil.probe(chapter_raw)
     raw_v = next((s for s in raw_info.get("streams", []) if s.get("codec_type") == "video"), {})
     active_w = crop_box[0] if crop_box else int(raw_v.get("width", 1920))
     active_h = crop_box[1] if crop_box else int(raw_v.get("height", 1080))
     layout = chapter_composer.compute_vertical_layout(active_w, active_h)
-    log.info("Part %d/%d flush vertical layout (active=%dx%d, crop=%s): %s", act_plan.part_number, act_plan.total_parts, active_w, active_h, crop_box, layout)
+    log.info(
+        "Part %d/%d 63.5/36.5 full-bleed layout (active=%dx%d, crop=%s): %s",
+        act_plan.part_number,
+        act_plan.total_parts,
+        active_w,
+        active_h,
+        crop_box,
+        layout,
+    )
 
-    # 4. Native Gemini MP4 video+audio watching (480p 5fps 64k) in live mode; contact sheets ONLY for mock_llm
+    # 4. Native Gemini MP4 video+audio watching (480p 5fps 64k + burned MM:SS) in live mode; sheets ONLY for mock_llm
     video_proxy: Path | None = None
     sheets: list[Path] | None = None
     if mock_llm:
@@ -881,6 +891,7 @@ def run_chapter_commentary(
             height=480,
             fps=5,
             audio_bitrate="64k",
+            burn_timecode=True,
         )
 
     script = chapter_commentator.generate_chapter_commentary(
@@ -892,6 +903,7 @@ def run_chapter_commentary(
         dialogue_timeline=str(timeline_map.get("dialogue_timeline_text", "")),
         busy_intervals=busy_intervals,
         open_gaps=list(timeline_map.get("open_gaps", [])),
+        last_movie_word_end=last_movie_word_end,
         previous_cliffhanger=prev_cliff,
         next_cliffhanger_goal=next_cliff,
         genre_hint=plan.genre,
@@ -903,7 +915,7 @@ def run_chapter_commentary(
         script.model_dump_json(indent=2) + "\n", encoding="utf-8"
     )
 
-    # 5. Synthesize dynamic-prosody commentary + freeze-frame timeline expansion + clean 1-word pop captions
+    # 5. Synthesize dynamic-prosody commentary + freeze-frame timeline expansion + clean 1-word pop captions (MarginV=755)
     full_wav, timings_json, ass_path = chapter_commentator.synthesize_timed_commentary(
         script,
         assembled_dur,
@@ -911,22 +923,23 @@ def run_chapter_commentary(
         cfg,
         mock_tts=mock_tts,
         busy_intervals=busy_intervals,
-        seam_y=layout["divider_y"],
+        seam_y=None,
     )
     timings = json.loads(timings_json.read_text(encoding="utf-8"))
     expansion_meta = json.loads((part_work / "03_timeline_expansion.json").read_text(encoding="utf-8"))
     expanded_dur = float(expansion_meta["expanded_duration_sec"])
+    freeze_events = list(expansion_meta.get("freeze_events", []))
 
-    # 6. Expand chapter video with ease-out 1.00x->1.10x zoom freeze-frame roasts & contrast/vignette pop
+    # 6. Expand chapter video with ease-out 1.00x->1.12x zoom freeze-frame roasts & warm contrast/vignette pop
     chapter_expanded = chapter_composer.expand_movie_with_freezes(
         chapter_raw,
-        list(expansion_meta.get("freeze_events", [])),
+        freeze_events,
         part_work,
         cfg,
         crop_box=crop_box,
     )
 
-    # 7. Render flush 1080xbooth_h Kiko 3D host booth (normalized sprites, 3D desk & screen-glow)
+    # 7. Render 1080x750 Kiko 2.0 reactive host overlay (RGB + grayscale Alpha dual-pipe for 3D pop-out)
     host_mp4 = host_animator.render_host_booth_video(
         full_wav,
         timings,
@@ -936,9 +949,11 @@ def run_chapter_commentary(
         cfg,
         movie_path=chapter_expanded,
         booth_height=layout["booth_h"],
+        freeze_events=freeze_events,
     )
+    host_alpha_mp4 = host_animator.host_alpha_path_for(host_mp4)
 
-    # 8. Single-pass zero-dead-space 9:16 composite + auto-profanity bleeping
+    # 8. Single-pass 63.5/36.5 full-bleed composite + 3D pop-out alphamerge + surgical auto-profanity bleep
     final_mp4 = out_dir / "final_short.mp4"
     chapter_composer.compose_chapter_short(
         chapter_expanded,
@@ -957,6 +972,7 @@ def run_chapter_commentary(
         chapter_words=chapter_words,
         layout=layout,
         crop_box=crop_box,
+        host_alpha_mp4=host_alpha_mp4,
     )
 
     # 9. Hard QA gate (freezes >=2, share 35-65%, overlap <=0.45s, CTA <=2.5s, clean captions, LUFS, sync)

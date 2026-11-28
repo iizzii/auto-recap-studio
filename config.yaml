@@ -13,10 +13,10 @@ chapter_commentary:
   min_gap_between_lines_sec: 0.30
   max_line_speedup: 1.14
   audio_crossfade_sec: 0.12
-  freeze_zoom_end: 1.10
+  freeze_zoom_end: 1.12
   min_commentary_share: 0.35
   max_commentary_share: 0.65
-  min_distinct_emotions: 5
+  min_distinct_emotions: 6
 
 host:
   enabled: true
@@ -25,17 +25,21 @@ host:
   booths_dir: "assets/host/booths"
   fps: 30
   booth_width: 1080
-  booth_height: 970
-  sprite_size: 620
-  desk_y_ratio: 0.69
+  booth_height: 700
+  overlay_height: 750
+  popout_headroom_px: 50
+  sprite_size: 460
+  desk_top_rel_y: 385
+  desk_bottom_rel_y: 495
+  desk_y_ratio: 0.55
   rms_open_threshold: 0.085
   rms_half_threshold: 0.028
   blink_interval_sec: [2.8, 4.6]
   blink_duration_ms: 120
-  character_x_ratio: 0.39
+  character_x_ratio: 0.36
   screen_glow_strength: 0.06
   emotion_crossfade_frames: 4
-  max_head_tilt_deg: 2.5
+  max_head_tilt_deg: 4.0
 
 runtime:
   fps: 30
@@ -164,7 +168,7 @@ captions:
   max_chars_per_line: 16
   font_name: "Montserrat ExtraBold"
   font_fallback: "DejaVu Sans Bold"
-  font_size: 92
+  font_size: 90
   outline_px: 7
   shadow_px: 3
   active_color: "#FFFFFF"
@@ -172,6 +176,7 @@ captions:
   emphasis_color: "#FFD84D"
   alignment: 2
   margin_v: 500
+  chapter_margin_v: 755
   accent_rotation: ["#FFFFFF"]
 
 audio:

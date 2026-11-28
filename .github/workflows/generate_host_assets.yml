@@ -1,10 +1,10 @@
-name: Generate 3D Kiko Host Assets
+name: Generate 3D Kiko 2.0 Host Assets
 
 on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Regenerate all 25+ 3D sprites and 4 genre booths even if already 640x640 / 1080x900"
+        description: "Regenerate all 31+ Kiko 2.0 sprites and 4 dark cinema booths even if already 640x640 / 1080x700"
         required: false
         type: boolean
         default: true
@@ -12,7 +12,7 @@ on:
 jobs:
   generate-kiko-assets:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
       contents: write
     env:
@@ -36,7 +36,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Generate 3D Pixar-style Kiko sprites and genre booths
+      - name: Generate 3D Pixar-style Kiko 2.0 sprites and dark cinema booths
         env:
           FORCE_REGEN: ${{ inputs.force }}
         run: |
@@ -46,19 +46,34 @@ jobs:
           fi
           python scripts/generate_host_assets_ai.py $FORCE_FLAG
 
-      - name: Verify 25+ RGBA sprites (640x640) and 4 booths (1080x900)
+      - name: Verify 31+ RGBA sprites (640x640) and 4 dark booths (1080x700)
         run: |
           python - <<'PY'
           from pathlib import Path
+          import numpy as np
           from PIL import Image
 
           sprites = sorted(Path("assets/host/sprites").glob("*.png"))
           booths = sorted(Path("assets/host/booths").glob("*.png"))
           preview = Path("assets/host/host_preview_sheet.jpg")
 
-          assert len(sprites) >= 25, f"Expected >=25 sprites, found {len(sprites)}"
+          assert len(sprites) >= 31, f"Expected >=31 Kiko 2.0 sprites, found {len(sprites)}"
           assert len(booths) == 4, f"Expected 4 booths, found {len(booths)}"
           assert preview.exists() and preview.stat().st_size > 10_000, "Missing host_preview_sheet.jpg"
+
+          names = {p.name for p in sprites}
+          for req in (
+              "neutral_closed.png",
+              "neutral_blink.png",
+              "blink.png",
+              "disgusted_closed.png",
+              "disgusted_open.png",
+              "suspicious_closed.png",
+              "suspicious_open.png",
+              "hyped_open.png",
+              "facepalm_open.png",
+          ):
+              assert req in names, f"Missing required Kiko 2.0 sprite: {req}"
 
           for sp in sprites:
               with Image.open(sp) as im:
@@ -70,12 +85,15 @@ jobs:
 
           for bp in booths:
               with Image.open(bp) as im:
-                  assert im.size == (1080, 900), f"{bp.name} size {im.size} != (1080, 900)"
+                  assert im.size == (1080, 700), f"{bp.name} size {im.size} != (1080, 700)"
+                  luma = float(np.array(im.convert("L"), dtype=np.float32).mean())
+                  assert luma < 95.0, f"{bp.name} too bright for dark cinema booth (mean luma={luma:.1f} >= 95)"
+                  print(f"Booth {bp.name}: {im.size}, mean_luma={luma:.1f}")
 
-          print(f"VERIFIED: {len(sprites)} sprites (640x640 RGBA) + {len(booths)} booths (1080x900) + preview sheet OK.")
+          print(f"VERIFIED: {len(sprites)} Kiko 2.0 sprites (640x640 RGBA) + {len(booths)} dark booths (1080x700) + preview sheet OK.")
           PY
 
-      - name: Upload Kiko visual verification contact sheet
+      - name: Upload Kiko 2.0 visual verification contact sheet
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -89,10 +107,10 @@ jobs:
           SPRITE_CNT=$(find assets/host/sprites -maxdepth 1 -name '*.png' | wc -l)
           BOOTH_CNT=$(find assets/host/booths -maxdepth 1 -name '*.png' | wc -l)
           {
-            echo "## 3D Pixar-Style Kiko Host Asset Pack"
+            echo "## 3D Pixar-Style Kiko 2.0 Host Asset Pack"
             echo ""
-            echo "- **Sprites generated (640x640 RGBA):** ${SPRITE_CNT}"
-            echo "- **Genre booths generated (1080x900):** ${BOOTH_CNT}"
+            echo "- **Sprites generated (640x640 RGBA, 10 poses + blink):** ${SPRITE_CNT}"
+            echo "- **Dark compact cinema booths (1080x700):** ${BOOTH_CNT}"
             echo "- **Preview contact sheet artifact:** \`kiko-3d-host-preview\` (\`assets/host/host_preview_sheet.jpg\`)"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -101,4 +119,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/host/sprites/*.png assets/host/booths/*.png assets/host/host_preview_sheet.jpg
-          git diff --cached --quiet || (git commit -m "chore(assets): generate 3D Pixar-style Kiko sprite pack and booths [skip ci]" && git pull --rebase origin main && git push)
+          git diff --cached --quiet || (git commit -m "chore(assets): generate Kiko 2.0 10-pose sprite pack and dark 1080x700 booths [skip ci]" && git pull --rebase origin main && git push)

@@ -23,9 +23,10 @@ STRICT EDITORIAL RULES:
    - **Part 2 (Escalation -> Peak Crisis):** Pick 3–5 intact scene blocks covering the main ambush, comedic horror escalation, and chaos, ending right after the peak life-or-death cliffhanger moment.
    - **Part 3 (Climax -> Final Payoff):** Pick 3–5 intact scene blocks delivering the decisive climax confrontation AND the final epilogue/twist payoff.
    - (If TOTAL_PARTS != 3, divide into TOTAL_PARTS escalating dramatic acts where non-final parts end on sharp cliffhangers and the final part delivers the full climax + ending.)
-4. TOP SCROLL-STOPPER HEADLINES (`top_headline`):
+4. TOP SCROLL-STOPPER HEADLINES (`top_headline` — TWIST-SAFE & TRUTHFUL!):
    - Write one killer 4 to 6 word ALL-CAPS `top_headline` per part that stops thumbs in 0.5 seconds.
-   - Make it specific, curiosity-driven, and concrete (e.g. "THESE TEENS WOKE UP THE FOREST", "THE CUTE MUSHROOMS JUST SNAPPED", "ONLY ONE SURVIVED THIS NIGHT").
+   - STRICTLY BAN headlines that LIE about or SPOIL the ending! NEVER write false claims like "ONLY ONE SURVIVES THIS NIGHT" if nobody survives, or spoil the final twist in the title.
+   - Use sharp, truthful, twist-safe curiosity hooks (e.g., "THESE TEENS WOKE UP THE FOREST", "THE CUTE MUSHROOMS JUST SNAPPED", "CAN SHE SURVIVE THE MUSHROOMS?", "SHE FOUGHT BACK WITH SNACKS").
    - ZERO banned clichés: NEVER use "BIG MISTAKE", "BAD IDEA", "PURE MADNESS", "UNBELIEVABLE", "WORST IDEA EVER", "RECIPE FOR DISASTER", or "TALK ABOUT A".
 
 Return ONLY valid JSON matching this schema:

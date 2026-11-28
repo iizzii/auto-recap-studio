@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate 3D Pixar-style Kiko host sprite pack (25+ 640x640 RGBA) and 4 genre booths (1080x900) via Gemini."""
+"""Generate 3D Pixar-style Kiko 2.0 host sprite pack (31+ 640x640 RGBA) and 4 dark cinema booths (1080x700)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import os
 import random
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,7 +29,7 @@ BOOTHS_DIR = Path("assets/host/booths")
 PREVIEW_PATH = Path("assets/host/host_preview_sheet.jpg")
 
 SPRITE_SIZE = 640
-BOOTH_SIZE = (1080, 900)
+BOOTH_SIZE = (1080, 700)
 
 EMOTIONS: tuple[str, ...] = (
     "neutral",
@@ -39,6 +40,8 @@ EMOTIONS: tuple[str, ...] = (
     "hyped",
     "sad",
     "facepalm",
+    "disgusted",
+    "suspicious",
 )
 MOUTHS: tuple[str, ...] = ("closed", "half", "open")
 
@@ -57,68 +60,112 @@ IMAGEN_FALLBACK_MODELS: tuple[str, ...] = (
 )
 
 MASTER_PORTRAIT_PROMPT = (
-    "3D Pixar and DreamWorks animated feature film style waist-up character portrait of Kiko, "
-    "an adorable charismatic orange-ginger and cream tabby cat podcast commentator facing the camera "
-    "with a friendly relaxed attentive expression and closed happy cat smile. "
-    "Richly sculpted soft fluffy ginger tabby fur with warm cream cheeks, muzzle, and chest fur, "
-    "large expressive glossy emerald-green eyes with warm studio catchlights, cute small pink nose, "
-    "wearing sleek matte-charcoal over-ear studio headphones with subtle glowing cyan-teal LED trim rings "
+    "3D Pixar and DreamWorks animated feature film character render (waist-up studio portrait) of Kiko 2.0, "
+    "an ultra-expressive charismatic ginger-amber and cream tabby cat movie commentator facing the camera "
+    "with a lively attentive expression and relaxed happy cat smile. "
+    "Richly sculpted fluffy ginger-amber tabby fur with warm cream cheeks and muzzle, a playful messy ginger hair tuft "
+    "between large expressive cat ears, huge glossy emerald-green eyes with crisp studio catchlights, cute small pink nose, "
+    "wearing a sleek dark charcoal streetwear hoodie with cyan and gold metallic drawcord tips, "
+    "matte-black over-ear studio headphones with subtle glowing cyan-teal LED rings, "
     "and a compact matte-black broadcast boom microphone extending cleanly near his left cheek. "
-    "Soft cinematic three-point warm studio lighting on the character, centered waist-up framing "
-    "with generous headroom above ears and fluffy shoulders reaching the bottom edge. "
+    "Both fluffy ginger-and-cream feline paws visible/usable near the lower chest for expressive acting "
+    "(always furry feline cat paws with tiny rounded toe beans — NEVER human hands or fingers). "
+    "Cinematic three-point warm key + subtle cyan rim studio lighting, centered waist/chest-up framing "
+    "with generous headroom above the ears (at least 18% empty headroom) and hoodie shoulders reaching the bottom edge. "
     "Standing against a 100% solid, completely flat, uniform, shadowless pure neon chroma-key green (#00FF00) background. "
     "NO studio background, NO desk, NO chair, NO props, NO text, NO border, NO watermark."
 )
 
 EMOTION_DIRECTIONS: dict[str, str] = {
-    "neutral": "friendly relaxed attentive commentator expression, ears perked upright, bright emerald eyes looking at camera",
-    "laughing": "hilarious genuine belly laugh, eyes happily squeezed shut in joyful curved arcs, cheeks raised, whiskers perky, ears slightly tilted back with mirth",
-    "shocked": "jaw-dropping comedic shock, emerald eyes super wide open with tiny surprised pupils, eyebrows shot high up, ears bolted straight up",
-    "horrified": "dramatic comedic horror and dread, wide terrified emerald eyes, furrowed worried eyebrows, ears pinned slightly back, tense hunched shoulders",
-    "smug": "knowing sarcastic smug smirk, one eyebrow arched playfully high, half-lidded confident emerald eyes glancing cheekily at camera",
-    "hyped": "maximum hype excitement, gleaming sparkling wide emerald eyes, eager raised eyebrows, energetic leaned-forward posture, ears perked high",
-    "sad": "dramatic heartbroken puppy-cat sympathy, big glistening glossy teary emerald eyes, droopy tilted ears, soft downturned brows",
+    "neutral": (
+        "friendly relaxed charismatic commentator expression, ears perked upright, bright glossy emerald eyes "
+        "looking directly at camera, comfortable relaxed posture in dark charcoal hoodie with one fluffy cat paw resting loosely near chest"
+    ),
+    "laughing": (
+        "hilarious genuine wheezing belly laugh, head tilted slightly back and to the side, eyes squeezed joyfully shut "
+        "in happy curved arcs with tiny sparkling happy tears, raised cheeks, one fluffy ginger cat paw clutching his hoodie belly "
+        "and the other furry cat paw waving outward in laughter (always furry cat paws, NEVER human hands)"
+    ),
+    "shocked": (
+        "jaw-dropping comedic shock, head slightly pulled back, huge wide emerald eyes with tiny startled pupils, "
+        "eyebrows shot high up, ears bolted straight upright, BOTH fluffy ginger-and-cream cat paws flung up near his cheeks "
+        "in classic stunned disbelief (always soft furry feline cat paws, NEVER human hands)"
+    ),
+    "horrified": (
+        "dramatic comedic horror and dread, hunched tense hoodie shoulders, wide terrified emerald eyes with tiny pupils, "
+        "furrowed worried brows, ears pinned slightly back, BOTH fluffy cat paws gripping the sides of his studio headphones "
+        "as he recoils in terror (always soft furry feline cat paws, NEVER human hands)"
+    ),
+    "smug": (
+        "knowing sarcastic smug smirk, head cocked cheekily to one side, one eyebrow arched playfully high, "
+        "half-lidded confident emerald eyes glancing side-eye at camera, one fluffy ginger cat paw raised pointing slyly "
+        "in an 'I told you so' gesture (always soft furry feline cat paw, NEVER human fingers)"
+    ),
+    "hyped": (
+        "maximum hype excitement, leaning eagerly forward, gleaming sparkling wide emerald eyes, eager raised brows, "
+        "ears perked high, BOTH fluffy ginger cat paws pumped high in excited little cat fists near/above ear height "
+        "(always soft furry feline cat paws, NEVER human hands)"
+    ),
+    "sad": (
+        "dramatic heartbroken puppy-cat sympathy, head slightly bowed, big glistening glossy teary emerald eyes, "
+        "droopy tilted ears, soft downturned brows, BOTH fluffy cat paws clasped gently together in front of his charcoal hoodie chest "
+        "(always soft furry feline cat paws, NEVER human hands)"
+    ),
     "facepalm": (
-        "exasperated comedic disbelief facepalm: Kiko raises ONE fluffy orange-ginger and cream feline cat paw "
-        "(clearly a soft furry cat paw with tiny rounded toe beans/paw edge — NEVER a human hand or fingers!) "
-        "up against his forehead/brow while squinting in disbelief, headphones and boom mic still cleanly intact"
+        "exasperated comedic disbelief facepalm: head tilted down in cringe, squinting exasperated eyes, "
+        "right fluffy orange-ginger and cream feline cat paw (clearly a soft furry cat paw with tiny rounded pink toe beans — "
+        "NEVER a human hand or fingers!) slapped squarely onto his forehead/brow while headphones and boom mic stay cleanly intact"
+    ),
+    "disgusted": (
+        "comedic grossed-out 'ew' cringe reaction, head recoiled slightly back and left, nose visibly scrunched up, "
+        "asymmetrical disgusted squint and furrowed brow, one fluffy ginger cat paw raised defensively palm-out pushing away in disgust "
+        "(clearly a soft furry feline cat paw with pink paw pads — NEVER a human hand)"
+    ),
+    "suspicious": (
+        "sharp detective suspicion, head tilted forward in intense scrutiny, eyes narrowed into sharp suspicious emerald slits "
+        "glancing sideways, one eyebrow lowered sharply, one fluffy ginger cat paw raised thoughtfully stroking his chin/muzzle "
+        "(always soft furry feline cat paw, NEVER human hands)"
     ),
 }
 
 MOUTH_DIRECTIONS: dict[str, str] = {
-    "closed": "mouth cleanly CLOSED (relaxed cat smile or expression-matched closed mouth, zero teeth showing)",
+    "closed": "mouth cleanly CLOSED (expression-matched closed cat mouth or smirk/grimace, zero teeth showing)",
     "half": "mouth slightly PARTED mid-word (small natural half-open oval talking mouth, speaking normally)",
     "open": "mouth WIDE OPEN mid-exclamation or laugh (expressive animated open talking mouth showing tiny cute cat tongue)",
 }
 
 BOOTH_PROMPTS: dict[str, str] = {
     "comedy": (
-        "3D Pixar and DreamWorks animated film background render of a cozy vibrant movie-commentary podcast studio booth "
-        "for a comedy show. Warm golden amber key lighting, glowing soft out-of-focus string fairy lights on dark wood "
-        "acoustic paneling, subtle vintage framed film posters and a red-and-white striped cinema popcorn bucket softly blurred "
-        "on a side shelf on the far right. Empty studio space on the left-center where a host will be composited later. "
-        "NO characters, NO cats, NO people, NO text, NO logos, cinematic shallow depth of field, rich Pixar color grading."
+        "3D Pixar animated film dark atmospheric movie-reaction podcast booth background (1080x700 widescreen). "
+        "Deep dark charcoal-walnut vertical acoustic slat walls heavily in shadow (dramatically darker than a movie screen), "
+        "very subtle dim warm amber tungsten corner rim glow and tiny soft out-of-focus warm practical accent light far right. "
+        "Empty shadowed dark center-left space where a bright ginger host sits. "
+        "STRICTLY dark moody low-key lighting (low overall brightness). NO bright walls, NO pastel/lavender colors, "
+        "NO tile grids, NO floating cartoon circles, NO desk, NO characters, NO cats, NO text, shallow depth of field."
     ),
     "horror_comedy": (
-        "3D Pixar and DreamWorks animated film background render of a spooky-fun midnight movie-commentary studio booth. "
-        "Moody deep twilight purple shadows, glowing teal-emerald neon accent light strips along matte acoustic wall tiles, "
-        "whimsical tiny glowing forest mushroom nightlight softly blurred on the far right shelf, subtle atmospheric haze. "
-        "Empty studio space on the left-center where a host will be composited later. "
-        "NO characters, NO cats, NO people, NO text, NO logos, cinematic shallow depth of field, rich Pixar lighting."
+        "3D Pixar animated film dark atmospheric midnight cinema-commentary booth background (1080x700 widescreen). "
+        "Deep obsidian charcoal vertical acoustic slat walls in moody darkness (significantly darker than a movie screen), "
+        "subtle dim teal-emerald edge accent strip far right and a faint moody midnight-indigo shadow wash. "
+        "Empty dark shadowed center-left space where a bright ginger host sits. "
+        "STRICTLY dark moody low-key cinema lighting. NO bright purple/lavender walls, NO checkerboard tile grids, "
+        "NO floating circles or orbs, NO desk, NO characters, NO cats, NO text, shallow depth of field."
     ),
     "action_scifi": (
-        "3D Pixar and DreamWorks animated film background render of a sleek futuristic sci-fi movie-reaction command booth. "
-        "Brushed dark graphite geometric acoustic panels, glowing electric cyan and cobalt blue recessed light strips, "
-        "softly blurred glowing holographic audio visualizer bars on the far right console. "
-        "Empty studio space on the left-center where a host will be composited later. "
-        "NO characters, NO cats, NO people, NO text, NO logos, cinematic shallow depth of field, crisp Pixar lighting."
+        "3D Pixar animated film dark futuristic sci-fi cinema-commentary booth background (1080x700 widescreen). "
+        "Deep matte obsidian graphite architectural vertical paneling in dark shadow (significantly darker than a movie screen), "
+        "subtle thin dim electric-cyan recessed vertical accent line on the far right edge, soft cinematic dark haze. "
+        "Empty dark shadowed center-left space where a bright ginger host sits. "
+        "STRICTLY dark low-key lighting. NO bright walls, NO grid wall patterns, NO floating circles, "
+        "NO desk, NO characters, NO cats, NO text, shallow depth of field."
     ),
     "emotional_drama": (
-        "3D Pixar and DreamWorks animated film background render of an intimate cinematic late-night cinema commentary booth. "
-        "Deep midnight indigo velvet acoustic curtains, warm golden practical Edison bulb bokeh lights, rain-dappled window "
-        "glow softly out of focus on the far right, warm cozy storytelling atmosphere. "
-        "Empty studio space on the left-center where a host will be composited later. "
-        "NO characters, NO cats, NO people, NO text, NO logos, cinematic shallow depth of field, lush Pixar lighting."
+        "3D Pixar animated film dark intimate late-night cinema-commentary booth background (1080x700 widescreen). "
+        "Deep midnight charcoal-navy velvet acoustic drapery and dark wood slats in soft shadow (significantly darker than a movie screen), "
+        "one tiny dim warm golden practical tungsten edge highlight far right. "
+        "Empty dark shadowed center-left space where a bright ginger host sits. "
+        "STRICTLY dark low-key lighting. NO bright walls, NO grid tiles, NO floating circles, "
+        "NO desk, NO characters, NO cats, NO text, shallow depth of field."
     ),
 }
 
@@ -329,7 +376,7 @@ def chroma_key_and_align(
     edge_soft = np.clip(1.0 - np.maximum(0.0, g_excess - 10.0) / 52.0, 0.0, 1.0) * 255.0
     alpha = np.where(edge_band, np.minimum(alpha, edge_soft), alpha)
 
-    # Light 1px anti-alias feather on boundary only
+    # Light 1px anti-alias feather + 1px dark-edge cleanup on semi-transparent boundary pixels
     alpha_blur = cv2.GaussianBlur(alpha, (3, 3), 0.75)
     near_edge = (dist_in <= 2.5) & (dist_in > 0.0)
     alpha = np.where(near_edge, alpha_blur, alpha)
@@ -348,6 +395,15 @@ def chroma_key_and_align(
         out_r = np.where(despill_band, np.clip(rf + spill * 0.22, 0.0, 255.0), out_r)
         out_b = np.where(despill_band, np.clip(bf + spill * 0.08, 0.0, 255.0), out_b)
 
+    # 1px dark/halo fringe cleanup on outer translucent edge by pulling inner clean fur color outward
+    outer_rim = (alpha > 0.0) & (alpha < 190.0) & (dist_in <= 1.8)
+    if np.any(outer_rim):
+        inner_rgb = np.stack([out_r, out_g, out_b], axis=2).astype(np.uint8)
+        dilated = cv2.dilate(inner_rgb, kernel3, iterations=1).astype(np.float32)
+        out_r = np.where(outer_rim, 0.55 * out_r + 0.45 * dilated[:, :, 0], out_r)
+        out_g = np.where(outer_rim, 0.55 * out_g + 0.45 * dilated[:, :, 1], out_g)
+        out_b = np.where(outer_rim, 0.55 * out_b + 0.45 * dilated[:, :, 2], out_b)
+
     rgba = np.stack(
         [
             np.clip(out_r, 0, 255).astype(np.uint8),
@@ -358,7 +414,7 @@ def chroma_key_and_align(
         axis=2,
     )
 
-    # Crop to foreground bounding box & align consistently bottom-anchored inside target_size x target_size
+    # Crop to foreground bounding box & align consistently by chest/shoulder anchor (do NOT squish raised paws!)
     opaque = rgba[:, :, 3] > 32
     opaque_ratio = float(opaque.mean())
     ys, xs = np.where(opaque)
@@ -367,21 +423,47 @@ def chroma_key_and_align(
 
     x0, x1 = int(xs.min()), int(xs.max()) + 1
     y0, y1 = int(ys.min()), int(ys.max()) + 1
-    cropped = Image.fromarray(rgba[y0:y1, x0:x1], mode="RGBA")
+    crop_arr = rgba[y0:y1, x0:x1]
+    crop_h, crop_w = crop_arr.shape[:2]
 
-    # Fit cleanly to 91% height, max 92% width, horizontally centered & bottom-anchored
-    max_h = int(target_size * 0.91)
-    max_w = int(target_size * 0.92)
-    scale = min(max_w / max(1, cropped.width), max_h / max(1, cropped.height))
+    # Measure chest/shoulder horizontal span in the lower torso band (bottom 28% of silhouette)
+    band_top = max(0, int(crop_h * 0.72))
+    band_opaque = crop_arr[band_top:, :, 3] > 32
+    _by, bx = np.where(band_opaque)
+    shoulder_w = float(bx.max() - bx.min() + 1) if len(bx) > 8 else float(crop_w)
+    shoulder_cx = float((bx.min() + bx.max()) * 0.5) if len(bx) > 8 else float(crop_w) * 0.5
+
+    # Anchor shoulder width to ~62% of canvas so tall poses (hyped fists / shocked ears) keep full torso scale
+    target_shoulder_w = target_size * 0.62
+    scale_by_shoulder = target_shoulder_w / max(1.0, shoulder_w)
+    max_fit_scale = min((target_size * 0.96) / max(1, crop_w), (target_size * 0.94) / max(1, crop_h))
+    min_fit_scale = min((target_size * 0.78) / max(1, crop_w), (target_size * 0.78) / max(1, crop_h))
+    scale = min(max_fit_scale, max(min_fit_scale, scale_by_shoulder))
+
+    cropped = Image.fromarray(crop_arr, mode="RGBA")
     new_w = max(1, round(cropped.width * scale))
     new_h = max(1, round(cropped.height * scale))
     resized = cropped.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     canvas = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))
-    paste_x = (target_size - new_w) // 2
+    # Align shoulder center horizontally to canvas center, clamped cleanly inside bounds
+    scaled_cx = round(shoulder_cx * scale)
+    paste_x = max(0, min(target_size - new_w, (target_size // 2) - scaled_cx))
     paste_y = target_size - new_h
     canvas.alpha_composite(resized, (paste_x, paste_y))
     return canvas, opaque_ratio
+
+
+def _normalize_dark_booth(img: Image.Image) -> Image.Image:
+    """Ensure every 1080x700 cinema booth stays dramatically darker than the movie above."""
+    fitted = ImageOps.fit(img.convert("RGB"), BOOTH_SIZE, method=Image.Resampling.LANCZOS)
+    arr = np.array(fitted, dtype=np.float32)
+    luma = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    mean_luma = float(luma.mean())
+    if mean_luma > 56.0:
+        gain = 46.0 / max(mean_luma, 1.0)
+        arr = np.clip(arr * gain, 0.0, 255.0)
+    return Image.fromarray(arr.astype(np.uint8), mode="RGB")
 
 
 def _generate_valid_sprite(
@@ -430,7 +512,7 @@ def _generate_valid_sprite(
 
 
 def _run_blender_3d_fallback(sprites_dir: Path, booths_dir: Path, samples: int = 28) -> None:
-    """Render full 25-sprite + 4-booth 3D Pixar-style Kiko pack in headless Blender Cycles."""
+    """Render full 32-sprite Kiko 2.0 + 4 dark 1080x700 booth pack in headless Blender Cycles."""
     blender_bin = shutil.which("blender")
     if not blender_bin:
         raise RuntimeError(
@@ -439,7 +521,7 @@ def _run_blender_3d_fallback(sprites_dir: Path, booths_dir: Path, samples: int =
     script_path = Path(__file__).resolve().parent / "render_kiko_blender_3d.py"
     log.warning(
         "Gemini image generation quota unavailable across configured keys -> "
-        "rendering true 3D Pixar-style Kiko pack + 4 bokeh studio booths via headless Blender Cycles (%s)...",
+        "rendering true 3D Pixar-style Kiko 2.0 10-pose pack + 4 dark 1080x700 booths via headless Blender Cycles (%s)...",
         blender_bin,
     )
     cmd = [
@@ -461,28 +543,28 @@ def _run_blender_3d_fallback(sprites_dir: Path, booths_dir: Path, samples: int =
 
 
 def _build_preview_sheet(sprites_dir: Path, booths_dir: Path, out_jpg: Path) -> Path:
-    """Build a visual verification contact sheet of all Kiko sprites and 4 genre booths."""
+    """Build a visual verification contact sheet of all Kiko 2.0 sprites and 4 dark cinema booths."""
     sprite_files = sorted(sprites_dir.glob("*.png"))
     booth_files = sorted(booths_dir.glob("*.png"))
 
-    cols = 5
-    tile = 220
+    cols = 6
+    tile = 210
     s_rows = max(1, (len(sprite_files) + cols - 1) // cols)
-    booth_h = 210
+    booth_h = 200
     total_w = cols * tile
     total_h = s_rows * tile + (booth_h + 24 if booth_files else 0) + 40
 
-    sheet = Image.new("RGB", (total_w, total_h), (18, 20, 28))
+    sheet = Image.new("RGB", (total_w, total_h), (14, 16, 22))
     draw = ImageDraw.Draw(sheet)
-    draw.text((16, 10), f"KIKO 3D ASSET PACK ({len(sprite_files)} sprites + {len(booth_files)} booths)", fill=(255, 216, 77))
+    draw.text((16, 10), f"KIKO 2.0 3D ASSET PACK ({len(sprite_files)} sprites + {len(booth_files)} dark 1080x700 booths)", fill=(255, 216, 77))
 
     for idx, sp in enumerate(sprite_files):
         r, c = divmod(idx, cols)
         x0 = c * tile
         y0 = 36 + r * tile
-        draw.rectangle([x0 + 3, y0 + 3, x0 + tile - 4, y0 + tile - 4], fill=(28, 32, 46), outline=(52, 58, 78))
+        draw.rectangle([x0 + 3, y0 + 3, x0 + tile - 4, y0 + tile - 4], fill=(22, 26, 38), outline=(48, 54, 72))
         spr = Image.open(sp).convert("RGBA").resize((tile - 16, tile - 28), Image.Resampling.LANCZOS)
-        bg_cell = Image.new("RGBA", (tile - 16, tile - 28), (28, 32, 46, 255))
+        bg_cell = Image.new("RGBA", (tile - 16, tile - 28), (22, 26, 38, 255))
         bg_cell.alpha_composite(spr, (0, 0))
         sheet.paste(bg_cell.convert("RGB"), (x0 + 8, y0 + 22))
         draw.text((x0 + 10, y0 + 6), sp.stem, fill=(235, 240, 255))
@@ -513,9 +595,9 @@ def _needs_regen(path: Path, expected_size: tuple[int, int], force: bool) -> boo
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate 3D Pixar-style Kiko sprites & genre booths.")
+    parser = argparse.ArgumentParser(description="Generate 3D Pixar-style Kiko 2.0 sprites & dark 1080x700 booths.")
     parser.add_argument("--force", action="store_true", help="Regenerate all sprites and booths even if present.")
-    parser.add_argument("--blender-samples", type=int, default=28, help="Cycles samples if Blender 3D renderer runs.")
+    parser.add_argument("--blender-samples", type=int, default=26, help="Cycles samples if Blender 3D renderer runs.")
     args = parser.parse_args()
 
     keys: list[tuple[str, str]] = []
@@ -544,14 +626,14 @@ def main() -> None:
     # 1. Try Tier 1: Gemini Native Image Generation + Reference-Conditioned Editing
     used_blender_fallback = False
     master_path = SPRITES_DIR / "neutral_closed.png"
-    master_raw_cache = Path("/tmp/kiko_master_raw.png")
+    master_raw_cache = Path(tempfile.gettempdir()) / "kiko_v2_master_raw.png"
 
     try:
         if not clients:
             raise RuntimeError("No GEMINI_API_KEY configured.")
 
         if _needs_regen(master_path, (SPRITE_SIZE, SPRITE_SIZE), args.force) or not master_raw_cache.exists():
-            log.info("Generating Master 3D Pixar Kiko portrait (neutral_closed) via Gemini...")
+            log.info("Generating Master 3D Pixar Kiko 2.0 portrait (neutral_closed) via Gemini...")
             master_img, master_raw_bytes = _generate_valid_sprite(
                 clients,
                 MASTER_PORTRAIT_PROMPT,
@@ -568,7 +650,7 @@ def main() -> None:
             master_raw_bytes = master_raw_cache.read_bytes()
             log.info("Reusing existing 640x640 master sprite %s", master_path)
 
-        # 2. Generate all 8 emotions x closed/open consistently from Master Reference
+        # 2. Generate all 10 emotions x closed/open consistently from Master Reference
         for emotion in EMOTIONS:
             for mouth in ("closed", "open"):
                 if emotion == "neutral" and mouth == "closed":
@@ -578,12 +660,13 @@ def main() -> None:
                     log.info("Skipping existing 640x640 sprite %s", out_path.name)
                     continue
                 edit_prompt = (
-                    "Using this EXACT same 3D Pixar-style orange-ginger tabby cat character Kiko from the reference image, "
+                    "Using this EXACT same 3D Pixar-style ginger-amber tabby cat character Kiko 2.0 from the reference image, "
                     "preserve the IDENTICAL camera distance, head scale, shoulder position, ginger-and-cream tabby fur pattern, "
-                    "matte-charcoal headphones with cyan-teal LED rings, black boom microphone, studio lighting, and "
+                    "messy ginger hair tuft between ears, dark charcoal streetwear hoodie with cyan/gold drawcord tips, "
+                    "matte-black over-ear headphones with cyan LED rings, black boom microphone, studio lighting, and "
                     "100% solid flat shadowless pure chroma-key green (#00FF00) background. "
-                    f"Modify ONLY Kiko's facial expression, pose, and mouth to match:\n"
-                    f"- Expression: {EMOTION_DIRECTIONS[emotion]}.\n"
+                    f"Modify ONLY Kiko's facial expression, head tilt, fluffy cat paw pose, and mouth to match:\n"
+                    f"- Expression & Pose: {EMOTION_DIRECTIONS[emotion]}.\n"
                     f"- Mouth: {MOUTH_DIRECTIONS[mouth]}.\n"
                     "Keep clean fur silhouette against pure flat #00FF00 green with NO desk, NO props, NO text."
                 )
@@ -599,12 +682,15 @@ def main() -> None:
                 spr_img.save(out_path, format="PNG")
                 time.sleep(1.5)
 
-        # 3. Generate natural blink sprite
+        # 3. Generate natural blink sprite (saved as both neutral_blink.png and blink.png)
         blink_path = SPRITES_DIR / "blink.png"
-        if _needs_regen(blink_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
+        neutral_blink_path = SPRITES_DIR / "neutral_blink.png"
+        if _needs_regen(neutral_blink_path, (SPRITE_SIZE, SPRITE_SIZE), args.force) or _needs_regen(
+            blink_path, (SPRITE_SIZE, SPRITE_SIZE), args.force
+        ):
             blink_prompt = (
-                "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko from the reference image, keep the IDENTICAL "
-                "pose, head position, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
+                "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko 2.0 from the reference image, keep the IDENTICAL "
+                "pose, head position, dark charcoal hoodie, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
                 "Change ONLY the eyes so BOTH eyes are softly gently closed in a natural mid-blink with soft curved dark lashes, "
                 "and keep the relaxed friendly closed cat smile."
             )
@@ -615,12 +701,13 @@ def main() -> None:
                 imagen_models=imagen_models,
                 dead_pairs=dead_pairs,
                 ref_png_bytes=master_raw_bytes,
-                label="blink",
+                label="neutral_blink",
             )
+            blink_img.save(neutral_blink_path, format="PNG")
             blink_img.save(blink_path, format="PNG")
             time.sleep(1.5)
 
-        # 4. Generate half-open talking mouth sprites for all 8 emotions
+        # 4. Generate half-open talking mouth sprites for all 10 emotions
         for emotion in EMOTIONS:
             half_path = SPRITES_DIR / f"{emotion}_half.png"
             if not _needs_regen(half_path, (SPRITE_SIZE, SPRITE_SIZE), args.force):
@@ -629,9 +716,9 @@ def main() -> None:
             open_p = SPRITES_DIR / f"{emotion}_open.png"
             try:
                 half_prompt = (
-                    "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko from the reference image, keep the IDENTICAL "
-                    "camera framing, head position, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
-                    f"Match this expression: {EMOTION_DIRECTIONS[emotion]}. "
+                    "Using this EXACT same 3D Pixar-style ginger tabby cat Kiko 2.0 from the reference image, keep the IDENTICAL "
+                    "camera framing, head position, dark charcoal hoodie, fur markings, headphones, boom mic, lighting, and solid flat #00FF00 green background. "
+                    f"Match this expression & pose: {EMOTION_DIRECTIONS[emotion]}. "
                     f"Mouth shape: {MOUTH_DIRECTIONS['half']}. "
                     "Keep clean silhouette on pure flat #00FF00 green with NO text or props."
                 )
@@ -652,7 +739,7 @@ def main() -> None:
                 o_im = Image.open(open_p).convert("RGBA")
                 Image.blend(c_im, o_im, 0.5).save(half_path, format="PNG")
 
-        # 5. Generate 4 lush 3D Pixar-style genre broadcast booths (1080x900)
+        # 5. Generate 4 dark moody 3D cinema commentary booths (1080x700)
         for genre, b_prompt in BOOTH_PROMPTS.items():
             b_path = BOOTHS_DIR / f"{genre}.png"
             if not _needs_regen(b_path, BOOTH_SIZE, args.force):
@@ -665,11 +752,11 @@ def main() -> None:
                 imagen_models=imagen_models,
                 dead_pairs=dead_pairs,
                 ref_png_bytes=None,
-                aspect_ratio="4:3",
+                aspect_ratio="16:9",
                 label=f"booth_{genre}",
             )
-            fitted = ImageOps.fit(raw_booth.convert("RGB"), BOOTH_SIZE, method=Image.Resampling.LANCZOS)
-            fitted.save(b_path, format="PNG")
+            dark_fitted = _normalize_dark_booth(raw_booth)
+            dark_fitted.save(b_path, format="PNG")
             time.sleep(1.5)
     except Exception as gemini_exc:
         log.warning("Tier-1 Gemini image pipeline unavailable: %s", gemini_exc)
@@ -682,9 +769,9 @@ def main() -> None:
     n_sprites = len(list(SPRITES_DIR.glob("*.png")))
     n_booths = len(list(BOOTHS_DIR.glob("*.png")))
     backend = "Blender 3D Cycles" if used_blender_fallback else "Gemini Native Image AI"
-    log.info("Generated %d sprites (640x640 RGBA) and %d booths (1080x900) via %s.", n_sprites, n_booths, backend)
-    if n_sprites < 25 or n_booths < 4:
-        raise RuntimeError(f"Asset pack incomplete: {n_sprites} sprites (<25) or {n_booths} booths (<4).")
+    log.info("Generated %d sprites (640x640 RGBA) and %d dark booths (1080x700) via %s.", n_sprites, n_booths, backend)
+    if n_sprites < 31 or n_booths < 4:
+        raise RuntimeError(f"Asset pack incomplete: {n_sprites} sprites (<31) or {n_booths} booths (<4).")
 
 
 if __name__ == "__main__":

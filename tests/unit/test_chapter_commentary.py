@@ -269,13 +269,34 @@ def test_chroma_key_protects_enclosed_emerald_eyes() -> None:
 
 
 def test_movie_stage_filter_16_9_and_cinemascope() -> None:
-    f16_9 = chapter_composer._build_movie_stage_filter(1920, 1080, "")
-    assert "crop=1080:742" in f16_9
-    assert "boxblur" not in f16_9  # 16:9 fills edge-to-edge cleanly within <=22% trim
+    lay_16 = chapter_composer.compute_vertical_layout(1920, 1080)
+    assert lay_16["divider_y"] == 1220
+    assert lay_16["booth_h"] == 700
+    assert lay_16["host_overlay_y"] == 1170
+    assert lay_16["host_overlay_h"] == 750
+    assert 200 <= lay_16["movie_y"] and lay_16["movie_y"] + lay_16["movie_h"] <= 1050
 
-    fscope = chapter_composer._build_movie_stage_filter(2560, 1080, "")
-    assert "boxblur" in fscope  # Ultra-wide caps horizontal trim at 22% with blurred ambient fill
-    assert "black" not in fscope  # Zero black bars
+    lay_scope = chapter_composer.compute_vertical_layout(2048, 858)
+    assert lay_scope["divider_y"] == 1220
+    assert 580 <= lay_scope["movie_h"] <= 660
+    assert 200 <= lay_scope["movie_y"] and lay_scope["movie_y"] + lay_scope["movie_h"] <= 1050
+
+    fc = chapter_composer.build_chapter_composite_filter_complex(
+        2048,
+        858,
+        90.0,
+        "",
+        lay_scope,
+        has_host_alpha=True,
+        feather_input_idx=4,
+        chrome_input_idx=3,
+        host_alpha_input_idx=5,
+        ass_flt=",ass='cap.ass'",
+    )
+    assert "crop=1080:1220,boxblur=24:6" in fc
+    assert "[mc_rgba][mc_mask]alphamerge=shortest=1[mov_feathered]" in fc
+    assert "[host_rgb][host_a]alphamerge=shortest=1[host_rgba]" in fc
+    assert "overlay=0:1170:shortest=1,ass='cap.ass'[out]" in fc
 
 
 def test_chapter_qa_gate_passes_valid_and_rejects_bad(tmp_path: Path) -> None:
@@ -306,6 +327,7 @@ def test_chapter_qa_gate_passes_valid_and_rejects_bad(tmp_path: Path) -> None:
             tmp_path / "final.mp4", script, timings, exp_meta, tmp_path, {}, strict=True, mock_llm=False
         )
         assert rep["passed"] is True
+        assert rep["metrics"]["cta_end_padding_sec"] > 0.20
         assert (tmp_path / "qa_report.json").exists()
 
         # Inject placeholder text -> strict QA gate must exit code 7
@@ -339,15 +361,19 @@ def test_auto_bleep_profanity_preserves_length_and_bleeps_exact_span(tmp_path: P
 
     assert len(bleeped) == 1
     assert bleeped[0]["word"] == "bitches!"
+    # Surgical timing [w.start + 0.03, w.end + 0.06]
+    assert bleeped[0]["start_sec"] == 1.03
+    assert bleeped[0]["end_sec"] == 1.46
     with wave.open(str(out_wav), "rb") as wf:
         assert wf.getnframes() == n_frames
         assert wf.getnchannels() == 2
         assert wf.getframerate() == sr
         pcm = np.frombuffer(wf.readframes(n_frames), dtype=np.int16).astype(np.float32).reshape(-1, 2) / 32768.0
 
-    # Non-profanity region stays silent; profanity region carries strong 1000 Hz bleep
+    # Non-profanity and pre-word region stay silent; surgical profanity region carries strong 1000 Hz bleep
     assert float(np.sqrt(np.mean(pcm[int(0.2 * sr) : int(0.55 * sr)] ** 2))) < 1e-5
-    assert float(np.sqrt(np.mean(pcm[int(1.05 * sr) : int(1.35 * sr)] ** 2))) > 0.10
+    assert float(np.sqrt(np.mean(pcm[int(0.97 * sr) : int(1.02 * sr)] ** 2))) < 1e-5
+    assert float(np.sqrt(np.mean(pcm[int(1.06 * sr) : int(1.43 * sr)] ** 2))) > 0.10
 
 
 def test_shift_words_for_freezes() -> None:
@@ -365,8 +391,8 @@ def test_shift_words_for_freezes() -> None:
 def test_dialogue_collision_resolver_and_exact_end_cta() -> None:
     script = ChapterCommentaryScript(
         genre="horror_comedy",
-        voice_name="en-US-AndrewMultilingualNeural",
-        voice_rate="+10%",
+        voice_name="en-US-ChristopherNeural",
+        voice_rate="+8%",
         chapter_title="Sprite Fright Part 1",
         top_headline="THEY WOKE UP THE FOREST",
         cues=[
@@ -395,14 +421,20 @@ def test_dialogue_collision_resolver_and_exact_end_cta() -> None:
         {"start_sec": 22.0, "end_sec": 73.0, "duration_sec": 51.0},
     ]
     resolved = chapter_commentator.resolve_dialogue_collisions_and_cta(
-        script, chapter_duration=80.0, busy_intervals=busy, open_gaps=open_gaps, part_number=1, total_parts=3
+        script,
+        chapter_duration=80.0,
+        busy_intervals=busy,
+        open_gaps=open_gaps,
+        part_number=1,
+        total_parts=3,
+        last_movie_word_end=79.65,
     )
     # Cue 2 either moved cleanly outside [15, 22] or promoted to freeze_frame=True
     c2 = resolved.cues[1]
     assert c2.freeze_frame or chapter_commentator.compute_busy_overlap(c2.start_sec, c2.start_sec + 2.5, busy) <= 0.35
-    # Final CTA forced onto exact end of clip (80.0 - 0.15 = 79.85) with freeze_frame=True
+    # Final CTA anchored strictly AFTER final spoken movie word (max(79.88, 79.65 + 0.30) = 79.95)
     last = resolved.cues[-1]
-    assert last.start_sec == 79.85
+    assert last.start_sec == 79.95
     assert last.freeze_frame is True
 
 
@@ -420,7 +452,7 @@ def test_clean_1word_pop_captions_strip_periods_and_commas(tmp_path: Path) -> No
     ]
     ass_path = tmp_path / "pop.ass"
     caption_engine.build_chapter_pop_captions(
-        timings, tmp_path / "missing.wav", ass_path, {}, mock_tts=True, seam_y=784
+        timings, tmp_path / "missing.wav", ass_path, {}, mock_tts=True, seam_y=None
     )
     ass_text = ass_path.read_text(encoding="utf-8")
     assert qa_gate._find_trailing_punct_caption_tokens(ass_path) == []
@@ -428,33 +460,39 @@ def test_clean_1word_pop_captions_strip_periods_and_commas(tmp_path: Path) -> No
     assert "WAIT?" in ass_text
     assert "THEM." not in ass_text
     assert "WOODS," not in ass_text
-    # Normal words stay single-word events (not merged into "WE LEFT" or "THE GREEN")
     assert "WE LEFT" not in ass_text
     assert "THE GREEN" not in ass_text
+    # Reconciled 63.5/36.5 caption band: 90pt font, Alignment=2, MarginV=755 (y=1065..1170)
+    assert ",90," in ass_text
+    assert ",2,40,40,755,1" in ass_text
 
 
-def test_sprite_normalization_and_flush_vertical_layout() -> None:
-    # Flush CinemaScope layout: 0px black gutter between movie bottom and glowing divider
+def test_sprite_normalization_and_63_5_36_5_layout() -> None:
+    # Reconciled 63.5/36.5 full-bleed layout with 50px pop-out headroom
     lay = chapter_composer.compute_vertical_layout(1920, 804)
-    assert lay["divider_y"] == lay["movie_y"] + lay["movie_h"]
-    assert lay["booth_h"] == 1920 - lay["divider_y"]
+    assert lay["divider_y"] == 1220
+    assert lay["booth_h"] == 700
+    assert lay["host_overlay_y"] == 1170
+    assert lay["host_overlay_h"] == 750
+    assert 200 <= lay["movie_y"] and lay["movie_y"] + lay["movie_h"] <= 1050
 
-    # Reference sprite normalization eliminates horizontal/vertical drift across emotions
+    # Chest/shoulder anchor normalization aligns torso cleanly WITHOUT squishing raised paws
     ref = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
     ImageDraw.Draw(ref).rounded_rectangle([160, 120, 480, 640], radius=40, fill=(230, 140, 60, 255))
 
     shifted = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
-    ImageDraw.Draw(shifted).rounded_rectangle([210, 150, 500, 600], radius=40, fill=(230, 140, 60, 255))
+    d_sh = ImageDraw.Draw(shifted)
+    d_sh.rounded_rectangle([210, 150, 500, 600], radius=40, fill=(230, 140, 60, 255))
+    # Raised excited paw sticking up/out above head (must NOT shrink shoulder/torso scale)
+    d_sh.ellipse([480, 40, 570, 160], fill=(230, 140, 60, 255))
 
     norm = host_animator.normalize_sprites_to_reference(
-        {"neutral_closed": ref, "facepalm_closed": shifted}, target_size=620
+        {"neutral_closed": ref, "hyped_open": shifted}, target_size=460
     )
     bb_ref = host_animator._opaque_bbox(norm["neutral_closed"])
-    bb_fp = host_animator._opaque_bbox(norm["facepalm_closed"])
-    assert bb_ref is not None and bb_fp is not None
-    # Both grounded flush at exact bottom baseline (620) with matched center & width
-    assert bb_ref[3] == 620 and bb_fp[3] == 620
-    assert abs((bb_ref[2] - bb_ref[0]) - (bb_fp[2] - bb_fp[0])) <= 4
+    bb_hy = host_animator._opaque_bbox(norm["hyped_open"])
+    assert bb_ref is not None and bb_hy is not None
+    assert bb_ref[3] == 460 and bb_hy[3] == 460
 
 
 def test_hardened_chapter_qa_gate_catches_new_failures(tmp_path: Path) -> None:
@@ -505,6 +543,89 @@ def test_hardened_chapter_qa_gate_catches_new_failures(tmp_path: Path) -> None:
         assert "trailing '.' or ','" in joined
 
 
+def test_qa_gate_hard_fails_on_chopped_ending_cta(tmp_path: Path) -> None:
+    """QA gate MUST hard fail if last_cue.end_sec > final_video_duration - 0.20."""
+    ch = ChapterSlice(part_number=1, total_parts=3, start_sec=0.0, end_sec=80.0, duration_sec=80.0)
+    script = chapter_commentator.generate_chapter_commentary(
+        tmp_path / "sheet.jpg", ch, "Sprite Fright", {}, mock_llm=True
+    )
+    timings = [
+        {"start_sec": c.start_sec, "end_sec": min(83.92, c.start_sec + 4.1), "emotion": c.emotion}
+        for c in script.cues
+    ]
+    timings[-1]["end_sec"] = 83.92  # Only 0.08s before 84.0s EOF -> CHOPPED!
+    probe_ok = {
+        "streams": [
+            {
+                "codec_type": "video", "width": 1080, "height": 1920,
+                "codec_name": "h264", "pix_fmt": "yuv420p", "r_frame_rate": "30/1", "duration": "84.0",
+            },
+            {"codec_type": "audio", "duration": "84.0"},
+        ]
+    }
+    exp_meta = {"active_commentary_sec": 39.0, "commentary_share": 0.464, "freeze_count": 3}
+    with (
+        patch("pipeline.ffutil.probe", return_value=probe_ok),
+        patch("pipeline.qa_gate._measure_lufs", return_value=-14.1),
+        patch("pipeline.qa_gate._black_stats", return_value=(0.0, 0.0)),
+    ):
+        rep = qa_gate.run_chapter_qa_gate(
+            tmp_path / "final.mp4", script, timings, exp_meta, tmp_path, {}, strict=False, mock_llm=False
+        )
+        assert rep["passed"] is False
+        assert any("chopped off" in f.lower() for f in rep["failures"])
+
+
+def test_kiko_v2_ten_emotions_prosody_and_reactive_rig() -> None:
+    all_10 = (
+        "neutral", "laughing", "shocked", "horrified", "smug",
+        "hyped", "sad", "facepalm", "disgusted", "suspicious",
+    )
+    for idx, em in enumerate(all_10, start=1):
+        cue = CommentaryCue(
+            cue_id=idx, start_sec=float(idx), max_duration_sec=2.5,
+            text=f"Kiko reacts with {em} energy right here!",
+            emphasis_word=em.upper(),
+            emotion=em,  # type: ignore[arg-type]
+            pause_emotion=em,  # type: ignore[arg-type]
+        )
+        assert cue.emotion == em
+        rate, pitch = chapter_commentator.get_emotion_prosody(em)
+        assert rate and pitch
+
+    assert chapter_commentator.get_emotion_prosody("laughing") == ("+15%", "+12Hz")
+    assert chapter_commentator.get_emotion_prosody("shocked") == ("+16%", "+10Hz")
+    assert chapter_commentator.get_emotion_prosody("disgusted") == ("+6%", "-4Hz")
+    assert chapter_commentator.get_emotion_prosody("suspicious") == ("+5%", "-3Hz")
+
+    # Reactive rig curves & stuck-facepalm auto-release (>2.2s silent pause)
+    assert len(host_animator.ELASTIC_SNAP_SCALE_Y) == 6
+    assert max(host_animator.ELASTIC_SNAP_SCALE_Y) == pytest.approx(1.09)
+    assert host_animator.get_target_camera_zoom("neutral") == 1.00
+    assert host_animator.get_target_camera_zoom("suspicious") == 1.07
+    assert host_animator.get_target_camera_zoom("laughing") == 1.10
+    assert host_animator.get_target_camera_zoom("disgusted") == 1.14
+    assert host_animator.get_target_camera_zoom("neutral", is_freeze=True) == 1.14
+
+    cues = [
+        {"start_sec": 0.0, "end_sec": 2.0, "emotion": "facepalm", "pause_emotion": "facepalm"},
+        {"start_sec": 8.0, "end_sec": 10.0, "emotion": "shocked", "pause_emotion": "neutral"},
+    ]
+    em_early, spk_early, _ = host_animator.resolve_frame_emotion_state(3.5, cues)
+    assert em_early == "facepalm" and not spk_early
+    em_late, spk_late, _ = host_animator.resolve_frame_emotion_state(4.8, cues)
+    assert em_late == "shocked" and not spk_late  # Auto-released after >2.2s!
+
+
+def test_gemini_proxy_burned_in_mmss_timecode() -> None:
+    vf = chapter_slicer.build_gemini_proxy_vf(height=480, fps=5, burn_timecode=True, fontfile="/tmp/f.ttf")
+    assert "scale=-2:480,fps=5" in vf
+    assert "drawtext=" in vf
+    assert "gmtime" in vf and "%M\\:%S" in vf
+    assert "x=w-tw-12:y=h-th-10" in vf
+    assert "box=1" in vf
+
+
 def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -> None:
     """Even under heavy dialogue density, total freezes stay <=4 and max overlap stays <=0.45s."""
     cues = [
@@ -514,7 +635,7 @@ def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -
             max_duration_sec=2.5,
             text=f"Hold up look at move {i + 1} right before the chaos hits the campers!",
             emphasis_word="CHAOS",
-            emotion=["smug", "shocked", "laughing", "facepalm", "horrified", "hyped"][i % 6],  # type: ignore[arg-type]
+            emotion=["smug", "shocked", "laughing", "facepalm", "horrified", "hyped", "disgusted", "suspicious"][i % 8],  # type: ignore[arg-type]
             pause_emotion="neutral",
             freeze_frame=(i in (2, 5, 8, 11)),
             freeze_duration_sec=2.0 if i in (2, 5, 8, 11) else 0.0,
@@ -524,12 +645,11 @@ def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -
     script = ChapterCommentaryScript(
         genre="horror_comedy",
         voice_name="en-US-ChristopherNeural",
-        voice_rate="+7%",
+        voice_rate="+8%",
         chapter_title="Sprite Fright Part 1",
         top_headline="THEY WOKE UP THE FOREST",
         cues=cues,
     )
-    # Dense dialogue spans every few seconds
     busy = [(1.0, 4.5), (7.0, 10.5), (13.0, 17.5), (20.0, 25.0), (28.0, 34.0), (38.0, 44.0), (48.0, 54.0), (58.0, 64.0)]
     gaps = [{"start_sec": 4.5, "end_sec": 7.0, "duration_sec": 2.5}, {"start_sec": 25.0, "end_sec": 28.0, "duration_sec": 3.0}, {"start_sec": 34.0, "end_sec": 38.0, "duration_sec": 4.0}]
     resolved = chapter_commentator.resolve_dialogue_collisions_and_cta(
@@ -542,3 +662,4 @@ def test_freeze_cap_prevents_overfreezing_under_dense_dialogue(tmp_path: Path) -
     exp = json.loads((tmp_path / "03_timeline_expansion.json").read_text(encoding="utf-8"))
     assert exp["freeze_count"] <= 6
     assert exp["max_dialogue_overlap_sec"] <= 0.45
+    assert exp["cta_end_padding_sec"] >= 0.30

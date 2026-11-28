@@ -311,7 +311,7 @@ def run_chapter_qa_gate(
     target_lufs = float(audio_cfg.get("target_lufs", -14.0))
     min_share = float(cc_cfg.get("min_commentary_share", 0.35))
     max_share = float(cc_cfg.get("max_commentary_share", 0.65))
-    min_emotions = int(cc_cfg.get("min_distinct_emotions", 5))
+    min_emotions = int(cc_cfg.get("min_distinct_emotions", 6))
     min_dur = 3.0 if mock_llm else max(45.0, float(cc_cfg.get("min_chapter_sec", 65.0)) - 15.0)
     max_dur = float(cc_cfg.get("max_chapter_sec", 120.0)) + 20.0
 
@@ -387,7 +387,8 @@ def run_chapter_qa_gate(
     )
 
     last_cue_end = max((float(t.get("end_sec", 0.0)) for t in timings), default=0.0)
-    cta_end_offset = max(0.0, v_dur - last_cue_end) if v_dur > 0 else float(expansion_meta.get("cta_end_offset_sec", 0.0))
+    cta_end_padding = (v_dur - last_cue_end) if v_dur > 0 else float(expansion_meta.get("cta_end_padding_sec", 0.0))
+    cta_end_offset = max(0.0, cta_end_padding)
 
     bad_cap_tokens = _find_trailing_punct_caption_tokens(ass_path) if ass_path is not None else []
     bleeped_list = list(
@@ -406,6 +407,10 @@ def run_chapter_qa_gate(
         if max_dlg_overlap > 0.45:
             failures.append(
                 f"Non-freeze commentary cue overlaps BUSY_DIALOGUE by {max_dlg_overlap:.2f}s (>0.45s limit)."
+            )
+        if v_dur > 0 and last_cue_end > v_dur - 0.20:
+            failures.append(
+                f"Final commentary cue ends at {last_cue_end:.2f}s (> final_video_duration - 0.20s = {v_dur - 0.20:.2f}s); ending CTA/audio is chopped off!"
             )
         if part_number < total_parts and cta_end_offset > 2.5:
             failures.append(
@@ -434,6 +439,7 @@ def run_chapter_qa_gate(
             "commentary_share": round(share, 4),
             "max_dialogue_overlap_sec": round(max_dlg_overlap, 3),
             "cta_end_offset_sec": round(cta_end_offset, 3),
+            "cta_end_padding_sec": round(cta_end_padding, 3),
             "bleeped_words": bleeped_list,
             "voice_used": str(expansion_meta.get("voice_used", getattr(script, "voice_name", ""))),
             "distinct_emotions_count": len(distinct_emotions),

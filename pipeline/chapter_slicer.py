@@ -339,6 +339,47 @@ def extract_chapter_contact_sheets(
     )
 
 
+def _resolve_timecode_font() -> str | None:
+    """Locate a crisp bold TTF font for burned-in Gemini proxy MM:SS timecodes."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "assets" / "fonts" / "Montserrat-ExtraBold.ttf",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return None
+
+
+def build_gemini_proxy_vf(
+    height: int = 480,
+    fps: int = 5,
+    *,
+    burn_timecode: bool = True,
+    fontfile: str | None = None,
+    use_hms_fallback: bool = False,
+) -> str:
+    """Build the FFmpeg video filter for Gemini proxies with an optional burned-in MM:SS timecode badge."""
+    base = f"scale=-2:{height},fps={fps}"
+    if not burn_timecode:
+        return base
+    font = fontfile if fontfile is not None else _resolve_timecode_font()
+    font_opt = ""
+    if font:
+        esc_font = str(font).replace("\\", "/").replace(":", "\\:")
+        font_opt = f"fontfile='{esc_font}':"
+    tc_expr = "%{pts\\:hms}" if use_hms_fallback else "%{pts\\:gmtime\\:0\\:%M\\:%S}"
+    font_sz = max(20, min(32, round(height * 0.058)))
+    draw = (
+        f"drawtext={font_opt}text='{tc_expr}':"
+        f"x=w-tw-12:y=h-th-10:fontsize={font_sz}:"
+        "fontcolor=white:box=1:boxcolor=black@0.75:boxborderw=6"
+    )
+    return f"{base},{draw}"
+
+
 def build_gemini_video_proxy(
     src_mp4: Path,
     out_mp4: Path,
@@ -346,30 +387,54 @@ def build_gemini_video_proxy(
     height: int = 480,
     fps: int = 5,
     audio_bitrate: str = "64k",
+    burn_timecode: bool = True,
 ) -> Path:
-    """Encode a compact H.264 + mono AAC MP4 proxy for native Gemini Files API video+audio watching."""
+    """Encode a compact H.264 + mono AAC MP4 proxy with burned-in MM:SS timecode for Gemini Files API."""
     if out_mp4.exists() and out_mp4.stat().st_size > 50_000:
         log.info("Reusing cached Gemini video proxy %s (%.2f MB)", out_mp4.name, out_mp4.stat().st_size / (1024 * 1024))
         return out_mp4
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
     has_audio = ffutil.has_audio(src_mp4)
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(src_mp4),
-        "-vf", f"scale=-2:{height},fps={fps}",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
-    ]
-    if has_audio:
-        cmd.extend(["-c:a", "aac", "-ac", "1", "-ar", "24000", "-b:a", audio_bitrate])
+
+    vf_attempts: list[str] = (
+        [
+            build_gemini_proxy_vf(height, fps, burn_timecode=True, use_hms_fallback=False),
+            build_gemini_proxy_vf(height, fps, burn_timecode=True, use_hms_fallback=True),
+            build_gemini_proxy_vf(height, fps, burn_timecode=False),
+        ]
+        if burn_timecode
+        else [build_gemini_proxy_vf(height, fps, burn_timecode=False)]
+    )
+
+    last_exc: Exception | None = None
+    for idx, vf_str in enumerate(vf_attempts):
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(src_mp4),
+            "-vf", vf_str,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
+        ]
+        if has_audio:
+            cmd.extend(["-c:a", "aac", "-ac", "1", "-ar", "24000", "-b:a", audio_bitrate])
+        else:
+            cmd.append("-an")
+        cmd.extend(["-movflags", "+faststart", str(out_mp4)])
+        try:
+            ffutil.run(cmd)
+            break
+        except Exception as exc:
+            last_exc = exc
+            if idx + 1 < len(vf_attempts):
+                log.warning("Gemini proxy drawtext attempt %d failed (%s); falling back.", idx + 1, exc)
     else:
-        cmd.append("-an")
-    cmd.extend(["-movflags", "+faststart", str(out_mp4)])
-    ffutil.run(cmd)
+        raise RuntimeError(f"Failed to build Gemini video proxy {out_mp4.name}: {last_exc}")
+
     log.info(
-        "Built Gemini video proxy %s (%dp @ %dfps, %.2f MB)",
+        "Built Gemini video proxy %s (%dp @ %dfps, timecode=%s, %.2f MB)",
         out_mp4.name,
         height,
         fps,
+        burn_timecode,
         out_mp4.stat().st_size / (1024 * 1024),
     )
     return out_mp4
@@ -549,7 +614,7 @@ def _sanitize_headline(raw: str, part_number: int) -> str:
         defaults = {
             1: "THEY WOKE UP THE FOREST",
             2: "THE TRAP JUST SNAPPED SHUT",
-            3: "ONLY ONE SURVIVES THIS NIGHT",
+            3: "CAN ANYONE SURVIVE THIS NIGHT?",
         }
         return defaults.get(part_number, f"ACT {part_number} CHANGES EVERYTHING")
     if len(words) > 6:
@@ -667,7 +732,7 @@ def _mock_three_act_plan(
     headlines = [
         "THESE TEENS WOKE UP THE FOREST",
         "THE CUTE MUSHROOMS JUST SNAPPED",
-        "ONLY ONE SURVIVED THE AMBUSH",
+        "CAN ANYONE SURVIVE THIS NIGHT?",
     ]
     parts: list[ActChapterPlan] = []
     for k in range(total_parts):
@@ -1096,11 +1161,17 @@ def assemble_condensed_chapter(
         else:
             busy_intervals.append([round(bs, 3), round(be, 3)])
 
+    last_word_end = max(
+        (float(w.get("end", 0.0)) for w in chapter_words),
+        default=max((float(d.get("end_sec", 0.0)) for d in mapped_dlg), default=0.0),
+    )
+
     timeline_map = {
         "part_number": act_plan.part_number,
         "total_parts": act_plan.total_parts,
         "top_headline": act_plan.top_headline,
         "assembled_duration_sec": assembled_dur,
+        "last_movie_word_end_sec": round(last_word_end, 3),
         "segments": mappings,
         "dialogue": mapped_dlg,
         "busy_intervals": busy_intervals,

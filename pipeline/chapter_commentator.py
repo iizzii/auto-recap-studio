@@ -31,21 +31,23 @@ VOICE_FALLBACK_CHAIN: tuple[str, ...] = (
 )
 
 EMOTION_VOICE_PROSODY: dict[str, tuple[str, str]] = {
-    "laughing": ("+9%", "+8Hz"),
-    "shocked": ("+10%", "+7Hz"),
-    "hyped": ("+10%", "+6Hz"),
-    "horrified": ("+7%", "+4Hz"),
-    "smug": ("+2%", "-2Hz"),
-    "facepalm": ("+2%", "-2Hz"),
-    "sad": ("-4%", "-4Hz"),
-    "neutral": ("+4%", "+1Hz"),
+    "laughing": ("+15%", "+12Hz"),
+    "shocked": ("+16%", "+10Hz"),
+    "hyped": ("+16%", "+10Hz"),
+    "horrified": ("+13%", "+7Hz"),
+    "disgusted": ("+6%", "-4Hz"),
+    "smug": ("+5%", "-3Hz"),
+    "suspicious": ("+5%", "-3Hz"),
+    "facepalm": ("+5%", "-3Hz"),
+    "sad": ("-4%", "-6Hz"),
+    "neutral": ("+8%", "+1Hz"),
 }
 
 _GENRE_VOICES: dict[str, tuple[str, str]] = {
-    "comedy": ("en-US-ChristopherNeural", "+7%"),
-    "horror_comedy": ("en-US-ChristopherNeural", "+7%"),
-    "action_scifi": ("en-US-ChristopherNeural", "+8%"),
-    "emotional_drama": ("en-US-ChristopherNeural", "+3%"),
+    "comedy": ("en-US-ChristopherNeural", "+8%"),
+    "horror_comedy": ("en-US-ChristopherNeural", "+8%"),
+    "action_scifi": ("en-US-ChristopherNeural", "+10%"),
+    "emotional_drama": ("en-US-ChristopherNeural", "+4%"),
 }
 
 _RESOLVED_VOICE_CACHE: str | None = None
@@ -86,10 +88,12 @@ class _GeminiCommentaryCue(BaseModel):
     emotion: Literal[
         "neutral", "laughing", "shocked", "horrified",
         "smug", "hyped", "sad", "facepalm",
+        "disgusted", "suspicious",
     ]
     pause_emotion: Literal[
         "neutral", "laughing", "shocked", "horrified",
         "smug", "hyped", "sad", "facepalm",
+        "disgusted", "suspicious",
     ]
     freeze_frame: bool
     freeze_duration_sec: float
@@ -351,15 +355,16 @@ def resolve_dialogue_collisions_and_cta(
     part_number: int,
     total_parts: int,
     max_freezes: int = 4,
+    last_movie_word_end: float = 0.0,
 ) -> ChapterCommentaryScript:
-    """Enforce zero dialogue interruption (>0.35s), max 4 freeze roasts, and exact end-of-clip CTA."""
+    """Enforce zero dialogue interruption (>0.35s), max 4 freeze roasts, and post-dialogue end-of-clip CTA."""
     busy = normalize_busy_intervals(busy_intervals)
     gaps = sorted(open_gaps or [], key=lambda g: float(g.get("start_sec", 0.0)))
     cues = [c.model_copy(deep=True) for c in sorted(script.cues, key=lambda x: x.start_sec)]
     if not cues:
         return script
 
-    # 1. Exact End-of-Clip Cliffhanger Freeze CTA for non-final parts (fixes 7s-early CTA permanently!)
+    # 1. Exact End-of-Clip Cliffhanger Freeze CTA anchored strictly AFTER final spoken movie word
     cta_cue: CommentaryCue | None = None
     if part_number < total_parts and chapter_duration >= 15.0:
         cta_idx = len(cues) - 1
@@ -368,10 +373,15 @@ def resolve_dialogue_collisions_and_cta(
                 cta_idx = idx
                 break
         cta_cue = cues.pop(cta_idx)
-        cta_cue.start_sec = round(max(0.0, chapter_duration - 0.15), 2)
+        last_word = max(
+            float(last_movie_word_end or 0.0),
+            max((be for _, be in busy), default=0.0),
+        )
+        raw_cta_anchor = max(chapter_duration - 0.12, last_word + 0.30) if last_word > 0.0 else (chapter_duration - 0.12)
+        cta_cue.start_sec = round(max(0.0, min(chapter_duration, raw_cta_anchor)), 2)
         cta_cue.freeze_frame = True
-        est_cta_dur = max(1.6, len(cta_cue.text.split()) / 3.85)
-        cta_cue.freeze_duration_sec = round(min(2.8, max(1.8, est_cta_dur + 0.15)), 2)
+        est_cta_dur = max(1.6, len(cta_cue.text.split()) / 4.05)
+        cta_cue.freeze_duration_sec = round(min(4.2, max(1.8, est_cta_dur + 0.45)), 2)
 
         for c in cues:
             if c.start_sec > chapter_duration - 2.2:
@@ -437,7 +447,7 @@ def resolve_dialogue_collisions_and_cta(
             return best_c
 
         for idx, cue in enumerate(cues):
-            est_dur = max(1.1, len(cue.text.split()) / 3.70)
+            est_dur = max(1.0, len(cue.text.split()) / 4.05)
             if cue.freeze_frame:
                 used_intervals.append((cue.start_sec, cue.start_sec + 0.8))
                 continue
@@ -452,7 +462,7 @@ def resolve_dialogue_collisions_and_cta(
             if idx == 0 and cue.start_sec <= 0.6 and non_cta_freezes < max_non_cta_freezes:
                 cue.start_sec = 0.05
                 cue.freeze_frame = True
-                cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
+                cue.freeze_duration_sec = round(min(3.2, max(1.5, est_dur + 0.45)), 2)
                 non_cta_freezes += 1
                 freeze_times.append(cue.start_sec)
                 used_intervals.append((cue.start_sec, cue.start_sec + 0.8))
@@ -474,7 +484,7 @@ def resolve_dialogue_collisions_and_cta(
             if non_cta_freezes < max_non_cta_freezes and all(abs(target_t - ft) >= 6.0 for ft in freeze_times):
                 cue.start_sec = target_t
                 cue.freeze_frame = True
-                cue.freeze_duration_sec = round(min(2.8, max(1.5, est_dur + 0.15)), 2)
+                cue.freeze_duration_sec = round(min(3.2, max(1.5, est_dur + 0.45)), 2)
                 non_cta_freezes += 1
                 freeze_times.append(target_t)
                 used_intervals.append((cue.start_sec, cue.start_sec + 0.8))
@@ -505,7 +515,7 @@ def validate_chapter_commentary(
     script: ChapterCommentaryScript,
     *,
     chapter_duration_sec: float | None = None,
-    min_emotions: int = 5,
+    min_emotions: int = 6,
     require_freeze_frames: bool = False,
 ) -> list[str]:
     """Validate a ChapterCommentaryScript against placeholder, repetition, cliché, and diversity rules."""
@@ -551,13 +561,13 @@ def validate_chapter_commentary(
                     f"Cues {id_a} and {id_b} share >70% token overlap ({inter}/{max_len})."
                 )
 
-    # Emotion diversity
+    # Emotion diversity across Kiko 2.0's 10 poses
     speaking_emotions = {c.emotion for c in cues}
     req_em = min(min_emotions, len(cues))
     if len(speaking_emotions) < req_em:
         errors.append(
             f"Only {len(speaking_emotions)} distinct emotions used ({sorted(speaking_emotions)}); "
-            f"need at least {req_em}."
+            f"need at least {req_em} across Kiko 2.0 poses (neutral/laughing/shocked/horrified/smug/hyped/sad/facepalm/disgusted/suspicious)."
         )
 
     # First cue hook check
@@ -575,21 +585,21 @@ def validate_chapter_commentary(
         if len(cues) < 11:
             errors.append(
                 f"Too few cues ({len(cues)}) for a {chapter_duration_sec:.0f}s chapter; "
-                "need 12-15 cues totaling ~155-185 words so Kiko hits 43-53% active speaking time."
+                "need 13-16 cues totaling ~165-205 words so Kiko hits 43-53% active speaking time."
             )
 
         total_words = sum(len(c.text.split()) for c in cues)
-        est_talk = sum(max(1.0, len(c.text.split()) / 3.70) for c in cues)
-        est_freeze = sum(min(2.8, max(1.4, c.freeze_duration_sec)) for c in freeze_cues)
+        est_talk = sum(max(1.0, len(c.text.split()) / 4.05) for c in cues)
+        est_freeze = sum(min(3.5, max(1.5, c.freeze_duration_sec)) for c in freeze_cues)
         est_total = max(1.0, chapter_duration_sec + est_freeze)
         est_share = est_talk / est_total
-        if est_share < 0.38:
-            needed_words = round(0.46 * est_total * 3.70)
+        if est_share < 0.39:
+            needed_words = round(0.47 * est_total * 4.05)
             deficit = max(25, needed_words - total_words)
             errors.append(
-                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<38%); "
+                f"Estimated commentary share {est_share:.0%} ({total_words} words) is too low (<39%); "
                 f"CRITICAL: ADD AT LEAST {deficit} MORE WORDS to reach >= {needed_words} total words! "
-                "Write 14-16 cues and make EVERY SINGLE CUE 12-16 words long (two punchy clauses each)."
+                "Write 14-16 cues and make EVERY SINGLE CUE 12-16 words long (two punchy comedy roast clauses each)."
             )
         elif est_share > 0.58:
             errors.append(
@@ -624,12 +634,12 @@ def _mock_commentary_script(
     """Deterministic valid non-placeholder script used ONLY when mock_llm=True in unit tests."""
     dur = chapter_slice.duration_sec
     templates = [
-        ("Hold up, nobody brings a heavy cricket bat on a quiet camp hike!", "BAT", "smug", "shocked", False, 0.0),
-        ("Look at those tiny glowing spores creeping behind his boots already.", "SPORES", "shocked", "neutral", False, 0.0),
-        ("Freeze right there—that smirk screams zero survival instincts!", "SURVIVAL", "laughing", "smug", True, 2.0),
-        ("Ellie literally tried warning the crew while they mocked every leaf.", "WARNING", "facepalm", "horrified", False, 0.0),
-        ("Oh no, the cute forest critters just flipped into attack formation!", "ATTACK", "horrified", "shocked", True, 2.0),
-        ("Wait till you see what erupts next—Part 2 is live right now!", "ERUPTS", "hyped", "shocked", True, 2.2),
+        ("Hold up, nobody brings a heavy cricket bat on a quiet camp hike!", "BAT", "smug", "suspicious", False, 0.0),
+        ("Wait a second, those tiny glowing spores are literally plotting behind his boots.", "PLOTTING", "suspicious", "shocked", False, 0.0),
+        ("Freeze right there—that smirk screams zero survival instincts!", "SURVIVAL", "laughing", "smug", True, 2.2),
+        ("Ew, why did he wipe gross forest slime straight onto his jacket sleeve?", "SLIME", "disgusted", "facepalm", False, 0.0),
+        ("Oh no, the cute forest critters just flipped into full ambush formation!", "AMBUSH", "horrified", "shocked", True, 2.2),
+        ("Wait till you see what erupts next—Part 2 is live right now!", "ERUPTS", "hyped", "shocked", True, 2.4),
     ]
     n_cues = min(len(templates), max(5, int(dur // 2.5)))
     chosen = templates[:n_cues]
@@ -639,7 +649,7 @@ def _mock_commentary_script(
         if i == 0:
             st = 0.0
         elif i == len(chosen) - 1 and chapter_slice.part_number < chapter_slice.total_parts and dur >= 15.0:
-            st = round(dur - 0.15, 2)
+            st = round(dur - 0.12, 2)
         else:
             st = round(min(dur - 0.8, i * step), 2)
         allow_frz = is_frz and dur >= 10.0 and (st >= 1.5 or st == 0.05)
@@ -684,6 +694,7 @@ def generate_chapter_commentary(
     dialogue_timeline: str = "",
     busy_intervals: list[tuple[float, float]] | list[list[float]] | None = None,
     open_gaps: list[dict[str, float]] | None = None,
+    last_movie_word_end: float = 0.0,
     previous_cliffhanger: str = "",
     next_cliffhanger_goal: str = "",
     genre_hint: str = "",
@@ -721,11 +732,12 @@ def generate_chapter_commentary(
 
     timeline_block = dialogue_timeline.strip() or subtitles_text.strip() or "(Mostly visual / non-verbal audio)"
     headline_str = top_headline or chapter_slice.top_headline or ""
-    target_words = max(145, round(0.47 * (dur + 7.0) * 3.70))
+    target_words = max(155, round(0.47 * (dur + 8.5) * 4.05))
+    cta_anchor = round(min(dur, max(dur - 0.12, last_movie_word_end + 0.30)), 2) if last_movie_word_end > 0.0 else round(dur - 0.12, 2)
     cta_rule = (
-        f"MANDATORY ENDING CTA TIMESTAMP: {dur - 0.15:.2f}s (freeze_frame=true, freeze_duration_sec=2.2) — AFTER final dialogue!"
+        f"MANDATORY ENDING CTA TIMESTAMP: {cta_anchor:.2f}s (freeze_frame=true, freeze_duration_sec=2.6) — strictly AFTER final movie dialogue!"
         if chapter_slice.part_number < chapter_slice.total_parts
-        else "FINAL PART: close on the final twist payoff with a witty reaction + quick comment-bait question."
+        else "FINAL PART: close on the final twist payoff with a witty roast + quick comment-bait question."
     )
     meta = (
         f"WORK_TITLE: {work_title}\n"
@@ -741,7 +753,7 @@ def generate_chapter_commentary(
         f"DIALOGUE_TIMELINE:\n{timeline_block[:7000]}"
     )
 
-    min_emotions = int(config.get("chapter_commentary", {}).get("min_distinct_emotions", 5))
+    min_emotions = int(config.get("chapter_commentary", {}).get("min_distinct_emotions", 6))
     last_errors: list[str] = []
     prev_json = ""
 
@@ -768,14 +780,14 @@ def generate_chapter_commentary(
         raw_cues = sorted(data.get("cues", []), key=lambda x: float(x.get("start_sec", 0.0)))
         norm_cues: list[dict[str, Any]] = []
         for idx, c in enumerate(raw_cues, start=1):
-            st = max(0.0, min(dur - 0.10, float(c.get("start_sec", 0.0))))
+            st = max(0.0, min(dur, float(c.get("start_sec", 0.0))))
             if idx == 1:
                 st = 0.0
             max_d = max(1.0, float(c.get("max_duration_sec", 3.5)))
             is_frz = bool(c.get("freeze_frame", False))
             fdur = float(c.get("freeze_duration_sec", 0.0)) if is_frz else 0.0
             if is_frz:
-                fdur = round(min(2.8, max(1.4, fdur or 2.2)), 2)
+                fdur = round(min(4.0, max(1.5, fdur or 2.4)), 2)
             txt = str(c.get("text", "")).strip()
             norm_cues.append(
                 {
@@ -800,11 +812,11 @@ def generate_chapter_commentary(
         script = ChapterCommentaryScript(**data)
         if genre_hint in _GENRE_VOICES:
             script.genre = genre_hint  # type: ignore[assignment]
-        v_name, v_rate = _GENRE_VOICES.get(script.genre, ("en-US-ChristopherNeural", "+7%"))
+        v_name, v_rate = _GENRE_VOICES.get(script.genre, ("en-US-ChristopherNeural", "+8%"))
         script.voice_name = v_name
         script.voice_rate = v_rate
 
-        # Deterministic post-generation dialogue collision resolver + exact ending CTA placement
+        # Deterministic post-generation dialogue collision resolver + exact post-dialogue ending CTA placement
         script = resolve_dialogue_collisions_and_cta(
             script,
             chapter_duration=dur,
@@ -812,6 +824,7 @@ def generate_chapter_commentary(
             open_gaps=open_gaps,
             part_number=chapter_slice.part_number,
             total_parts=chapter_slice.total_parts,
+            last_movie_word_end=last_movie_word_end,
         )
 
         errs = validate_chapter_commentary(
@@ -951,26 +964,29 @@ def _synth_freeze_sfx_track(
     out_wav: Path,
     sr: int = 48000,
 ) -> Path:
-    """Synthesize crisp 100ms vinyl-stop + camera-pop freeze SFX at -13 dBFS (zero clipping)."""
+    """Synthesize punchy 140ms vinyl record-scratch + camera-pop freeze SFX at -9 dBFS (zero clipping)."""
     total_samples = max(sr, round(total_duration * sr))
     track = np.zeros(total_samples, dtype=np.float32)
 
-    # 100ms punchy vinyl-stop pitch drop (780Hz -> 95Hz) + subtle crisp 12ms shutter transient
-    pop_dur = 0.10
+    # 140ms crisp downward pitch-sweep (920Hz -> 82Hz) + vinyl scratch chirp + camera-pop transient
+    pop_dur = 0.14
     n_pop = round(pop_dur * sr)
     t = np.linspace(0.0, pop_dur, n_pop, endpoint=False, dtype=np.float32)
-    freq = 685.0 * np.exp(-26.0 * t) + 95.0
+    freq = 838.0 * np.exp(-22.0 * t) + 82.0
     phase = 2.0 * np.pi * np.cumsum(freq) / sr
-    # Soft 4ms attack and 12ms release cosine fade -> zero harsh clicks
-    fade_in = np.minimum(t / 0.004, 1.0)
-    fade_out = np.clip((pop_dur - t) / 0.014, 0.0, 1.0)
-    sweep = np.sin(phase) * np.exp(-14.0 * t) * fade_in * fade_out
+    fade_in = np.minimum(t / 0.003, 1.0)
+    fade_out = np.clip((pop_dur - t) / 0.018, 0.0, 1.0)
+    sweep = np.sin(phase) * np.exp(-10.5 * t) * fade_in * fade_out
 
-    # Crisp camera-pop click harmonic (1.8kHz damped burst over first 14ms)
-    click = 0.42 * np.sin(2.0 * np.pi * 1850.0 * t) * np.exp(-190.0 * t) * fade_in
-    raw_sfx = (sweep + click).astype(np.float32)
+    # Crisp vinyl-scratch harmonic chirp (2.4kHz -> 620Hz over first 45ms) + punchy camera-pop click
+    scratch_f = 1780.0 * np.exp(-48.0 * t) + 620.0
+    scratch_p = 2.0 * np.pi * np.cumsum(scratch_f) / sr
+    scratch = 0.36 * np.sin(scratch_p) * np.exp(-52.0 * t) * fade_in
+    click = 0.45 * np.sin(2.0 * np.pi * 1950.0 * t) * np.exp(-170.0 * t) * fade_in
+
+    raw_sfx = (sweep + scratch + click).astype(np.float32)
     peak = float(np.max(np.abs(raw_sfx))) or 1.0
-    target_peak = 10.0 ** (-13.0 / 20.0)  # Exact -13 dBFS peak (~0.2239)
+    target_peak = 10.0 ** (-9.0 / 20.0)  # Exact -9 dBFS peak (~0.3548)
     pop = (raw_sfx / peak) * target_peak
 
     for ev in freeze_events:
@@ -1031,12 +1047,12 @@ def synthesize_timed_commentary(
     mock_tts: bool = False,
     *,
     busy_intervals: list[tuple[float, float]] | list[list[float]] | None = None,
-    seam_y: int = 946,
+    seam_y: int | None = None,
 ) -> tuple[Path, Path, Path]:
     """Synthesize dynamic-prosody cues onto freeze-expanded timeline -> (full_wav, timings_json, ass_path).
 
-    Applies warm broadcast vocal EQ/compression, crisp -13 dBFS freeze SFX, runtime dialogue-overlap
-    protection, and writes ``03_timeline_expansion.json``.
+    Applies warm broadcast vocal EQ/compression, punchy -9 dBFS record-scratch/pop freeze SFX,
+    runtime dialogue-overlap protection, zero chopped-off ending CTAs, and writes ``03_timeline_expansion.json``.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     cc_cfg = config.get("chapter_commentary", {})
@@ -1087,7 +1103,7 @@ def synthesize_timed_commentary(
 
     for idx, (cue, wav_path, dur) in enumerate(synth_cues):
         is_last = idx == len(synth_cues) - 1
-        max_raw_pos = chapter_duration - 0.05 if (is_last and cue.freeze_frame) else (chapter_duration - 0.5)
+        max_raw_pos = chapter_duration if (is_last and cue.freeze_frame) else (chapter_duration - 0.5)
         t_raw = max(0.0, min(max(0.0, max_raw_pos), float(cue.start_sec)))
 
         want_freeze = (
@@ -1170,7 +1186,7 @@ def synthesize_timed_commentary(
                         and (raw_eff_start - last_freeze_raw) >= 3.5
                     ):
                         want_freeze = True
-                        t_raw = round(min(chapter_duration - 0.15, raw_eff_start), 3)
+                        t_raw = round(min(chapter_duration - 0.12, raw_eff_start), 3)
                     else:
                         log.warning(
                             "Skipping colliding cue %d at %.2fs (freeze budget %d/%d, proj_share=%.1f%%, overlap=%.2fs)",
@@ -1186,32 +1202,49 @@ def synthesize_timed_commentary(
         if skip_cue:
             continue
 
+        # Protect the FINAL non-freeze cue from EVER overflowing the video end (zero chopped-off endings!)
+        if is_last and not want_freeze:
+            tent_exp = max(cursor_exp, t_raw + cumulative_shift)
+            max_end_allowed = chapter_duration + cumulative_shift - 0.30
+            if tent_exp + dur > max_end_allowed:
+                avail_end = max(0.5, max_end_allowed - tent_exp)
+                if dur / max_speed <= avail_end:
+                    spd = min(max_speed, dur / avail_end)
+                    sped_wav = out_dir / f"cue_{cue.cue_id:03d}_endfit.wav"
+                    wav_path, dur = _speed_up_wav(wav_path, spd, sped_wav, sr=sr, mock_tts=mock_tts)
+                else:
+                    # Promote final cue to a clean ending hold freeze so it NEVER clips at EOF
+                    want_freeze = True
+                    t_raw = round(min(chapter_duration, max(t_raw, chapter_duration - 0.12)), 3)
+
         if want_freeze:
             t_exp = t_raw + cumulative_shift
             if t_exp < cursor_exp:
                 push = cursor_exp - t_exp
-                if t_raw + push <= (chapter_duration - 0.05 if is_last else chapter_duration - 0.3):
+                if t_raw + push <= (chapter_duration if is_last else chapter_duration - 0.3):
                     t_raw = round(t_raw + push, 3)
                     t_exp = t_raw + cumulative_shift
                 elif not is_last:
                     want_freeze = False
 
         if want_freeze:
-            # Cap freeze hold to [1.2, 3.2]s snapped to exact frame count so full roast finishes cleanly
-            raw_hold = min(3.2, max(1.2, dur + 0.18))
-            freeze_frames = max(int(round(1.2 * fps)), min(int(round(3.2 * fps)), round(raw_hold * fps)))
+            # Dynamic freeze hold: max(1.5, actual_wav_dur + 0.45), capped at 4.2s ending CTA / 3.2s mid-chapter
+            max_hold = 4.2 if is_last else 3.2
+            raw_hold = min(max_hold, max(1.5, dur + 0.45))
+            freeze_frames = max(int(round(1.5 * fps)), min(int(round(max_hold * fps)), round(raw_hold * fps)))
             freeze_dur = round(freeze_frames / fps, 6)
 
-            usable_window = max(0.8, freeze_dur - 0.12)
+            # Guarantee >= 0.32s clean breathing room after voice finishes before freeze/video ends
+            usable_window = max(0.9, freeze_dur - 0.38)
             if dur > usable_window:
-                needed_speed = min(1.20, dur / usable_window)
+                needed_speed = min(1.22, dur / usable_window)
                 if needed_speed > 1.01:
                     sped_wav = out_dir / f"cue_{cue.cue_id:03d}_sped.wav"
                     wav_path, dur = _speed_up_wav(wav_path, needed_speed, sped_wav, sr=sr, mock_tts=mock_tts)
 
             t_exp = round(t_raw + cumulative_shift, 3)
             voice_start = round(t_exp + 0.06, 3)
-            voice_end = round(min(t_exp + freeze_dur, voice_start + dur), 3)
+            voice_end = round(min(t_exp + freeze_dur - 0.05, voice_start + dur), 3)
 
             freeze_events.append(
                 {
@@ -1358,6 +1391,7 @@ def synthesize_timed_commentary(
         "commentary_share": round(active_commentary_sec / max(0.1, expanded_duration), 4),
         "max_dialogue_overlap_sec": round(max_dialogue_overlap, 3),
         "cta_end_offset_sec": cta_end_offset,
+        "cta_end_padding_sec": cta_end_offset,
         "distinct_emotions": sorted({t["emotion"] for t in placed_timings}),
         "sfx_wav": sfx_wav_path,
     }

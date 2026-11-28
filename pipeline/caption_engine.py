@@ -382,19 +382,19 @@ def build_chapter_pop_captions(
     mock_tts: bool = False,
     seam_y: int | None = None,
 ) -> Path:
-    """Build crisp 1-word pop captions centered on the movie/booth seam with gold emphasis."""
+    """Build crisp 1-word pop captions at y=1065..1170 (MarginV=755) with gold emphasis."""
     cap_cfg = config.get("captions", {})
     font_name = _resolve_font(
         str(cap_cfg.get("font_name", "Montserrat ExtraBold")),
         str(cap_cfg.get("font_fallback", "DejaVu Sans Bold")),
     )
-    font_size = int(cap_cfg.get("font_size", 92))
+    font_size = int(cap_cfg.get("font_size", 90))
     outline_px = int(cap_cfg.get("outline_px", 7))
     shadow_px = int(cap_cfg.get("shadow_px", 3))
     margin_v = (
         max(160, min(1400, 1920 - int(seam_y) - int(font_size * 0.46)))
         if seam_y is not None
-        else int(cap_cfg.get("chapter_margin_v", 932))
+        else int(cap_cfg.get("chapter_margin_v", 755))
     )
     white_ass = _hex_to_ass_bgr(str(cap_cfg.get("active_color", "#FFFFFF")))
     white_tag = _hex_to_ass_tag_bgr(str(cap_cfg.get("active_color", "#FFFFFF")))

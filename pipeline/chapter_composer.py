@@ -1,4 +1,4 @@
-"""Single-pass zero-dead-space 9:16 split-screen composer + freeze-frame expander + auto-bleep."""
+"""Single-pass 63.5/36.5 full-bleed 9:16 composer with 3D pop-out alpha merge, freeze zoom & surgical auto-bleep."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from pipeline import audio_mixer, ffutil, video_composer
+from pipeline import audio_mixer, ffutil, host_animator, video_composer
 from pipeline.models import ChapterSlice, RightsRecord
 
 log = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def auto_bleep_profanity(
     chapter_words: list[dict[str, Any]],
     out_wav_path: Path,
 ) -> tuple[Path, list[dict[str, Any]]]:
-    """Replace matched profanity spans in movie WAV with a clean 1000 Hz -14 dBFS bleep.
+    """Replace matched profanity spans [w.start + 0.03, w.end + 0.06] with a clean 1000 Hz -14 dBFS bleep.
 
     Preserves exact WAV sample count, sample rate, sample width, and channel count.
     """
@@ -123,7 +123,6 @@ def auto_bleep_profanity(
 
     total_dur = n_frames / float(sr)
     bleeped_words: list[dict[str, Any]] = []
-    # -14 dBFS peak 1000 Hz sine bleep
     bleep_amp = float(10.0 ** (-14.0 / 20.0))
     fade_samples_max = max(1, int(round(0.010 * sr)))
 
@@ -131,8 +130,11 @@ def auto_bleep_profanity(
         raw_word = str(w.get("word", "")).strip()
         if not _is_profanity_word(raw_word):
             continue
-        t_start = max(0.0, float(w.get("start", 0.0)) - 0.03)
-        t_end = min(total_dur, float(w.get("end", t_start)) + 0.03)
+        # Surgical timing [w.start + 0.03, w.end + 0.06]: zero early bleep, zero tail leak
+        raw_s = float(w.get("start", 0.0))
+        raw_e = float(w.get("end", raw_s))
+        t_start = max(0.0, min(total_dur, raw_s + 0.03))
+        t_end = min(total_dur, max(t_start + 0.06, raw_e + 0.06))
         s_idx = max(0, int(round(t_start * sr)))
         e_idx = min(n_frames, int(round(t_end * sr)))
         span = e_idx - s_idx
@@ -226,21 +228,54 @@ def detect_active_crop(source_path: Path, sample_count: int = 5) -> tuple[int, i
 
 
 def compute_vertical_layout(active_w: int, active_h: int) -> dict[str, int]:
-    """Compute flush 1080x1920 vertical layout with 0px black gutter above the divider."""
+    """Compute reconciled 63.5% Movie (y=0..1220) / 36.5% Compact Booth (y=1220..1920) layout.
+
+    - Upper Movie World (y=0..1220): full-bleed ambient blur, header at y=95..185, sharp movie
+      centered inside y=200..1050 (<=26% crop for 2.39:1 cinemascope, <=18% for 16:9) with 18px
+      feathered top/bottom alpha edge, and 1-word pop captions at y=1065..1170 (MarginV=755).
+    - Compact Dark Booth (y=1220..1920): 1080x700 booth rendered inside a 1080x750 RGBA overlay
+      mapped to y=1170..1920 so Kiko's ears, raised paws & comic FX pop 15-30px above y=1220.
+    """
     aspect = active_w / max(1, active_h)
-    # Max 22% horizontal trim => scaled width <= 1080 / 0.78 (~1385px)
-    max_scaled_w = round(1080 / 0.78)
+    is_cinemascope = aspect >= 2.1
+    max_crop = 0.26 if is_cinemascope else 0.18
+    max_scaled_w = round(1080 / (1.0 - max_crop))
     raw_h = int(round(max_scaled_w / max(0.5, aspect))) & ~1
-    movie_h = max(560, min(742, raw_h))
-    movie_y = 204
-    divider_y = movie_y + movie_h
-    booth_h = 1920 - divider_y
+    movie_h = max(480, min(660, raw_h)) if is_cinemascope else max(540, min(840, raw_h))
+
+    stage_top = 200
+    stage_bottom = 1050
+    movie_y = (stage_top + max(0, (stage_bottom - stage_top - movie_h) // 2)) & ~1
+    divider_y = 1220
+    booth_h = 1920 - divider_y  # 700
+    popout_headroom = 50
+    host_overlay_y = divider_y - popout_headroom  # 1170
+    host_overlay_h = booth_h + popout_headroom  # 750
+
     return {
+        "movie_world_h": divider_y,
         "movie_y": movie_y,
         "movie_h": movie_h,
         "divider_y": divider_y,
         "booth_h": booth_h,
+        "popout_headroom": popout_headroom,
+        "host_overlay_y": host_overlay_y,
+        "host_overlay_h": host_overlay_h,
+        "max_scaled_w": max_scaled_w,
     }
+
+
+def _build_feather_mask_png(width: int, height: int, out_png: Path, feather_px: int = 18) -> Path:
+    """Build a fast grayscale alpha matte PNG with *feather_px* soft top/bottom edges."""
+    mask = np.full((height, width), 255, dtype=np.uint8)
+    f = max(1, min(feather_px, height // 4))
+    ramp = np.linspace(0.0, 255.0, f, dtype=np.float32)
+    smooth = np.clip(0.5 * (1.0 - np.cos(np.pi * (ramp / 255.0))) * 255.0, 0.0, 255.0).astype(np.uint8)
+    mask[:f, :] = smooth[:, None]
+    mask[height - f :, :] = smooth[::-1, None]
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(mask, mode="L").save(out_png, format="PNG")
+    return out_png
 
 
 def _load_bold_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -265,73 +300,78 @@ def _render_header_and_divider_png(
     genre: str,
     out_png: Path,
     *,
-    movie_y: int = 204,
-    divider_y: int = 946,
+    movie_y: int = 200,
+    divider_y: int = 1220,
+    include_divider: bool = False,
 ) -> Path:
-    """Render 1080x1920 RGBA chrome: top gradient scrim, PART pill, headline, and flush glowing divider."""
+    """Render 1080x1920 RGBA top chrome: soft scrim, dark-glass PART pill & headline at y=95..185.
+
+    When ``include_divider=False`` (default 3D pop-out mode), the glowing neon divider at y=1220
+    is rendered inside ``host_animator.py`` BEHIND Kiko so his ears/paws/FX pop in front of it.
+    """
     w, h = 1080, 1920
     accent = _GENRE_ACCENTS.get(genre, _GENRE_ACCENTS["comedy"])
 
     arr = np.zeros((h, w, 4), dtype=np.uint8)
 
-    # Top scrim so blurred ambient header keeps rich color while headline pops crisply
-    scrim_h = min(h, max(180, movie_y + 4))
+    # Top gradient scrim behind header (y=0..220) so headline always pops over blurred movie bleed
+    scrim_h = min(h, max(210, min(260, movie_y + 18)))
     ys = np.linspace(0.0, 1.0, scrim_h, dtype=np.float32)
-    scrim_a = (165.0 * (1.0 - 0.52 * ys)).astype(np.uint8)
+    scrim_a = (178.0 * ((1.0 - ys) ** 1.15)).astype(np.uint8)
     arr[:scrim_h, :, 0] = 8
     arr[:scrim_h, :, 1] = 10
     arr[:scrim_h, :, 2] = 16
     arr[:scrim_h, :, 3] = scrim_a[:, None]
 
-    # Subtle glowing 4px genre-accent divider centered FLUSH at divider_y
-    div_center = max(20, min(h - 20, int(divider_y)))
-    for y in range(div_center - 10, div_center + 11):
-        dist = abs(y - div_center)
-        if dist <= 1:
-            r = min(255, int(accent[0] * 0.72 + 255 * 0.28))
-            g = min(255, int(accent[1] * 0.72 + 255 * 0.28))
-            b = min(255, int(accent[2] * 0.72 + 255 * 0.28))
-            a = 248
-        elif dist == 2:
-            r, g, b, a = accent[0], accent[1], accent[2], 235
-        else:
-            falloff = max(0.0, 1.0 - (dist - 2) / 9.0)
-            r, g, b = accent
-            a = int(145 * (falloff**1.8))
-        arr[y, :, 0] = r
-        arr[y, :, 1] = g
-        arr[y, :, 2] = b
-        arr[y, :, 3] = a
+    if include_divider:
+        div_center = max(20, min(h - 20, int(divider_y)))
+        for y in range(div_center - 10, div_center + 11):
+            dist = abs(y - div_center)
+            if dist <= 1:
+                r = min(255, int(accent[0] * 0.72 + 255 * 0.28))
+                g = min(255, int(accent[1] * 0.72 + 255 * 0.28))
+                b = min(255, int(accent[2] * 0.72 + 255 * 0.28))
+                a = 248
+            elif dist == 2:
+                r, g, b, a = accent[0], accent[1], accent[2], 235
+            else:
+                falloff = max(0.0, 1.0 - (dist - 2) / 9.0)
+                r, g, b = accent
+                a = int(145 * (falloff**1.8))
+            arr[y, :, 0] = r
+            arr[y, :, 1] = g
+            arr[y, :, 2] = b
+            arr[y, :, 3] = a
 
     img = Image.fromarray(arr, mode="RGBA")
     draw = ImageDraw.Draw(img)
 
-    # 1. Semi-transparent dark-glass PART k/N pill (y=56..100)
+    # 1. Semi-transparent dark-glass PART k/N pill (y=95..133, safely below Reels/Shorts top icons)
     pill_text = f"PART {part_number}/{total_parts}" if total_parts > 1 else "MOVIE RECAP"
-    pill_font = _load_bold_font(25)
+    pill_font = _load_bold_font(23)
     pb = draw.textbbox((0, 0), pill_text, font=pill_font)
-    pw = (pb[2] - pb[0]) + 42
-    ph = 44
+    pw = (pb[2] - pb[0]) + 40
+    ph = 38
     px0 = (w - pw) // 2
-    py0 = 56
+    py0 = 95
     draw.rounded_rectangle(
         [px0, py0, px0 + pw, py0 + ph],
-        radius=22,
-        fill=(14, 16, 24, 212),
-        outline=(*accent, 230),
+        radius=19,
+        fill=(14, 16, 24, 215),
+        outline=(*accent, 232),
         width=2,
     )
     ptx = (w - (pb[2] - pb[0])) // 2 - pb[0]
     pty = py0 + (ph - (pb[3] - pb[1])) // 2 - pb[1]
     draw.text((ptx, pty), pill_text, font=pill_font, fill=(*accent, 255))
 
-    # 2. Bold uppercase 4-6 word top_headline centered at y=110..196
+    # 2. Crisp uppercase 4-6 word top_headline centered at y=139..188
     headline = " ".join(str(top_headline or "").strip().upper().split())
     if headline:
         max_w = 970
-        chosen_font = _load_bold_font(46)
+        chosen_font = _load_bold_font(44)
         chosen_lines = [headline]
-        for fsize in (48, 44, 40, 36):
+        for fsize in (46, 42, 38, 34):
             fnt = _load_bold_font(fsize)
             hb = draw.textbbox((0, 0), headline, font=fnt)
             if (hb[2] - hb[0]) <= max_w:
@@ -341,7 +381,7 @@ def _render_header_and_divider_png(
         else:
             words = headline.split()
             mid = max(1, len(words) // 2)
-            chosen_font = _load_bold_font(36)
+            chosen_font = _load_bold_font(32)
             chosen_lines = [" ".join(words[:mid]), " ".join(words[mid:])]
 
         line_heights: list[int] = []
@@ -351,14 +391,14 @@ def _render_header_and_divider_png(
             line_bboxes.append(bb)
             line_heights.append(bb[3] - bb[1])
 
-        gap = 6
+        gap = 4
         total_h = sum(line_heights) + gap * (len(chosen_lines) - 1)
-        cur_y = 110 + max(0, (82 - total_h) // 2)
+        cur_y = 139 + max(0, (48 - total_h) // 2)
         for ln, bb, lh in zip(chosen_lines, line_bboxes, line_heights):
             lw = bb[2] - bb[0]
             tx = (w - lw) // 2 - bb[0]
             ty = cur_y - bb[1]
-            draw.text((tx + 2, ty + 3), ln, font=chosen_font, fill=(0, 0, 0, 210))
+            draw.text((tx + 2, ty + 3), ln, font=chosen_font, fill=(0, 0, 0, 215))
             draw.text(
                 (tx, ty),
                 ln,
@@ -382,12 +422,12 @@ def expand_movie_with_freezes(
     *,
     crop_box: tuple[int, int, int, int] | None = None,
 ) -> Path:
-    """Insert frame-exact ease-out 1.00x->1.10x zoom freeze holds with contrast/vignette pop."""
+    """Insert frame-exact ease-out 1.00x->1.12x zoom freeze holds with warm contrast/vignette pop."""
     if not freeze_events:
         return chapter_raw_mp4
 
     fps = int(config.get("runtime", {}).get("fps", 30))
-    zoom_end = float(config.get("chapter_commentary", {}).get("freeze_zoom_end", 1.10))
+    zoom_end = float(config.get("chapter_commentary", {}).get("freeze_zoom_end", 1.12))
     zoom_delta = max(0.03, zoom_end - 1.0)
 
     info = ffutil.probe(chapter_raw_mp4)
@@ -468,7 +508,7 @@ def expand_movie_with_freezes(
         piece_idx += 1
 
     for ev in events:
-        ev_t = max(prev_t, min(max(0.0, raw_dur - 0.06), float(ev["raw_time_sec"])))
+        ev_t = max(prev_t, min(raw_dur, float(ev["raw_time_sec"])))
         _cut_normal(prev_t, ev_t)
 
         # Extract exact frame at ev_t (with EOF-safe fallback for ending CTA freezes)
@@ -476,10 +516,11 @@ def expand_movie_with_freezes(
         frz_dur = n_frz / float(fps)
         still_png = frz_dir / f"p{piece_idx:02d}_still.png"
         still_vf = ["-vf", f"crop={crop_box[0]}:{crop_box[1]}:{crop_box[2]}:{crop_box[3]}"] if (apply_crop and crop_box) else []
+        still_seek = max(0.0, min(raw_dur - 0.06, ev_t))
         res_still = ffutil.run(
             [
                 "ffmpeg", "-y",
-                "-ss", f"{ev_t:.3f}",
+                "-ss", f"{still_seek:.3f}",
                 "-i", str(chapter_raw_mp4),
                 *still_vf,
                 "-frames:v", "1",
@@ -502,13 +543,13 @@ def expand_movie_with_freezes(
         vp = frz_dir / f"p{piece_idx:02d}_freeze_v.mp4"
         ap = frz_dir / f"p{piece_idx:02d}_freeze_a.wav"
         denom = max(1, n_frz - 1)
-        # Quadratic ease-out 1.00x -> 1.10x zoom + subtle contrast/saturation pop + dark corner vignette
+        # Quadratic ease-out 1.00x -> 1.12x zoom + warm contrast/saturation pop + dark vignette
         zp_vf = (
             f"scale={out_w * 2}:{out_h * 2}:flags=lanczos,"
             f"zoompan=z='1+{zoom_delta:.4f}*(2*(on/{denom})-(on/{denom})*(on/{denom}))':"
             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
             f"d={n_frz}:s={out_w}x{out_h}:fps={fps},setsar=1,"
-            f"eq=contrast=1.08:saturation=1.12,vignette=PI/6,format=yuv420p"
+            f"eq=contrast=1.10:saturation=1.14:brightness=0.02,vignette=PI/5.5,format=yuv420p"
         )
         ffutil.run(
             [
@@ -522,7 +563,6 @@ def expand_movie_with_freezes(
                 str(vp),
             ]
         )
-        # Movie audio cleanly mutes during freeze-frame roast beat
         ffutil.run(
             [
                 "ffmpeg", "-y",
@@ -567,31 +607,78 @@ def expand_movie_with_freezes(
     return expanded_mp4
 
 
-def _build_movie_stage_filter(src_w: int, src_h: int, pre: str, stage_w: int = 1080, stage_h: int = 742) -> str:
-    """Build zero-black-bar movie stage filter with <=22% horizontal trim and ambient blur fallback."""
+def _build_movie_stage_filter(src_w: int, src_h: int, pre: str, stage_w: int = 1080, stage_h: int = 612) -> str:
+    """Build crisp graded movie stage filter cropped cleanly to stage_w x stage_h (<=26% cinemascope / <=18% 16:9)."""
     aspect = src_w / max(1, src_h)
     grade = "eq=contrast=1.06:saturation=1.18:brightness=0.02,unsharp=5:5:0.6:5:5:0.0"
-
-    # Max 22% horizontal trim => scaled_w <= stage_w / 0.78 (~1385px)
-    max_scaled_w = round(stage_w / 0.78)
+    max_crop = 0.26 if aspect >= 2.1 else 0.18
+    max_scaled_w = round(stage_w / (1.0 - max_crop))
     needed_w_for_full_h = round(stage_h * aspect)
 
-    if needed_w_for_full_h <= max_scaled_w + 4:
+    if needed_w_for_full_h <= max_scaled_w + 8:
         return (
             f"[mov_stage_in]{pre}scale={stage_w}:{stage_h}:force_original_aspect_ratio=increase,"
-            f"crop={stage_w}:{stage_h},{grade}[mov_stage]"
+            f"crop={stage_w}:{stage_h},{grade}[mov_crisp]"
         )
 
-    # Ultra-wide fallback when stage_h was not dynamically shrunk
-    fg_h = max(2, int(round(max_scaled_w / aspect)) & ~1)
-    fg_h = min(stage_h, fg_h)
+    fg_h = max(2, min(stage_h, int(round(max_scaled_w / aspect)) & ~1))
     return (
-        f"[mov_stage_in]{pre}split=2[ms_bg][ms_fg];"
-        f"[ms_bg]scale={stage_w}:{stage_h}:force_original_aspect_ratio=increase,"
-        f"crop={stage_w}:{stage_h},boxblur=22:5,eq=brightness=-0.10:saturation=1.22[ms_amb];"
-        f"[ms_fg]scale={max_scaled_w}:{fg_h}:force_original_aspect_ratio=increase,"
-        f"crop={stage_w}:{fg_h},{grade}[ms_crisp];"
-        f"[ms_amb][ms_crisp]overlay=0:(H-h)/2[mov_stage]"
+        f"[mov_stage_in]{pre}scale={max_scaled_w}:{fg_h}:force_original_aspect_ratio=increase,"
+        f"crop={stage_w}:{fg_h},{grade}[mov_crisp]"
+    )
+
+
+def build_chapter_composite_filter_complex(
+    active_w: int,
+    active_h: int,
+    dur: float,
+    pre: str,
+    layout: dict[str, int],
+    *,
+    has_host_alpha: bool,
+    feather_input_idx: int,
+    chrome_input_idx: int,
+    host_alpha_input_idx: int | None = None,
+    ass_flt: str = "",
+) -> str:
+    """Construct the reconciled 63.5/36.5 full-bleed + feathered movie + 3D pop-out FFmpeg filtergraph."""
+    movie_world_h = int(layout.get("movie_world_h", 1220))
+    movie_y = int(layout["movie_y"])
+    movie_h = int(layout["movie_h"])
+    divider_y = int(layout["divider_y"])
+    booth_h = int(layout["booth_h"])
+    host_overlay_y = int(layout.get("host_overlay_y", divider_y - 50))
+    host_overlay_h = int(layout.get("host_overlay_h", booth_h + 50))
+
+    stage_filter = _build_movie_stage_filter(active_w, active_h, pre, stage_w=1080, stage_h=movie_h)
+
+    if has_host_alpha and host_alpha_input_idx is not None:
+        host_chain = (
+            f"[1:v]fps=30,scale=1080:{host_overlay_h},format=rgba[host_rgb];"
+            f"[{host_alpha_input_idx}:v]fps=30,scale=1080:{host_overlay_h},format=gray,"
+            f"lut=c0='if(lt(val,12),0,if(gt(val,244),255,val))'[host_a];"
+            f"[host_rgb][host_a]alphamerge=shortest=1[host_rgba];"
+            f"[s3][host_rgba]overlay=0:{host_overlay_y}:shortest=1{ass_flt}[out]"
+        )
+    else:
+        host_chain = (
+            f"[1:v]fps=30,scale=1080:{booth_h}[host];"
+            f"[s3][host]overlay=0:{divider_y}:shortest=1{ass_flt}[out]"
+        )
+
+    return (
+        f"color=c=0x0b0b10:s=1080x1920:d={dur:.3f}[base];"
+        f"[0:v]fps=30,split=2[mov_amb_in][mov_stage_in];"
+        f"[mov_amb_in]{pre}scale=1080:{movie_world_h}:force_original_aspect_ratio=increase,"
+        f"crop=1080:{movie_world_h},boxblur=24:6,eq=brightness=-0.10:saturation=1.25[mov_amb];"
+        f"{stage_filter};"
+        f"[mov_crisp]format=rgba[mc_rgba];"
+        f"[{feather_input_idx}:v]scale=1080:{movie_h},format=gray[mc_mask];"
+        f"[mc_rgba][mc_mask]alphamerge=shortest=1[mov_feathered];"
+        f"[base][mov_amb]overlay=0:0[s1];"
+        f"[s1][mov_feathered]overlay=0:{movie_y}[s2];"
+        f"[s2][{chrome_input_idx}:v]overlay=0:0:eof_action=repeat[s3];"
+        f"{host_chain}"
     )
 
 
@@ -613,8 +700,9 @@ def compose_chapter_short(
     chapter_words: list[dict[str, Any]] | None = None,
     layout: dict[str, int] | None = None,
     crop_box: tuple[int, int, int, int] | None = None,
+    host_alpha_mp4: Path | None = None,
 ) -> Path:
-    """Render viral zero-dead-space 1080x1920 30fps Short with flush seam, auto-bleep & smart ducking."""
+    """Render 63.5/36.5 full-bleed 1080x1920 30fps Short with 3D pop-out alphamerge, feathered movie & auto-bleep."""
     cc_cfg = config.get("chapter_commentary", {})
     audio_cfg = config.get("audio", {})
     normal_db = float(cc_cfg.get("source_audio_normal_db", -6.0))
@@ -639,13 +727,15 @@ def compose_chapter_short(
     movie_y = int(lay["movie_y"])
     movie_h = int(lay["movie_h"])
     divider_y = int(lay["divider_y"])
-    booth_h = int(lay["booth_h"])
+
+    alpha_cand = host_alpha_mp4 if host_alpha_mp4 is not None else host_animator.host_alpha_path_for(host_booth_mp4)
+    has_host_alpha = bool(host_alpha_mp4 is not None or (alpha_cand.exists() and alpha_cand.stat().st_size > 100))
 
     sfx_str = str(expansion_meta.get("sfx_wav", "")).strip() if expansion_meta else ""
     sfx_path = Path(sfx_str) if sfx_str else None
     has_sfx = bool(sfx_path and sfx_path.is_file() and sfx_path.stat().st_size > 100)
 
-    # 1. Mix Audio: -6dB movie audio (auto-bleeped for profanity) -> sidechain-ducked + -13 dBFS freeze SFX
+    # 1. Mix Audio: -6dB movie audio (surgically auto-bleeped) -> sidechain-ducked + -9 dBFS freeze SFX
     master_m4a = work_dir / "chapter_master_audio.m4a"
     seek_args = [] if source_is_assembled else ["-ss", f"{chapter_slice.start_sec:.3f}"]
     bleeped_words: list[dict[str, Any]] = []
@@ -720,7 +810,7 @@ def compose_chapter_short(
     if expansion_meta is not None:
         expansion_meta["bleeped_words"] = bleeped_words
 
-    # 2. Render top header (PART pill + uppercase top_headline) + flush glowing divider overlay PNG
+    # 2. Render top header (PART pill + uppercase top_headline at y=95..185) & 18px movie feather mask
     headline = top_headline or chapter_slice.top_headline or ""
     chrome_png = _render_header_and_divider_png(
         chapter_slice.part_number,
@@ -730,9 +820,13 @@ def compose_chapter_short(
         work_dir / f"part_{chapter_slice.part_number}_chrome.png",
         movie_y=movie_y,
         divider_y=divider_y,
+        include_divider=not has_host_alpha,
+    )
+    feather_png = _build_feather_mask_png(
+        1080, movie_h, work_dir / f"part_{chapter_slice.part_number}_movie_feather.png", feather_px=18
     )
 
-    # 3. Single-pass zero-dead-space 1080x1920 composite with flush movie/booth seam
+    # 3. Single-pass 63.5/36.5 full-bleed composite + 3D pop-out host alphamerge + final ASS caption burn
     sample_ts = [2.0] if source_is_assembled else [chapter_slice.start_sec + 2.0]
     deint = video_composer.should_deinterlace(source_path, sample_ts, config, work_year=rights.year)
     pre_parts: list[str] = []
@@ -747,31 +841,39 @@ def compose_chapter_short(
     fonts_dir = str(video_composer._FONTS_DIR).replace("\\", "/").replace(":", "\\:")
     ass_flt = f",ass='{ass_esc}':fontsdir='{fonts_dir}'" if ass_path.exists() and ass_path.stat().st_size > 10 else ""
 
-    stage_filter = _build_movie_stage_filter(active_w, active_h, pre, stage_w=1080, stage_h=movie_h)
-    fc = (
-        f"color=c=0x0b0b10:s=1080x1920:d={dur:.3f}[base];"
-        f"[0:v]fps=30,split=2[mov_top_in][mov_stage_in];"
-        f"[mov_top_in]{pre}scale=1080:{movie_y + 6}:force_original_aspect_ratio=increase,"
-        f"crop=1080:{movie_y + 2},boxblur=24:6,eq=brightness=-0.08:saturation=1.28[top_amb];"
-        f"{stage_filter};"
-        f"[1:v]fps=30,scale=1080:{booth_h}[host];"
-        f"[base][top_amb]overlay=0:0[s1];"
-        f"[s1][mov_stage]overlay=0:{movie_y}[s2];"
-        f"[s2][host]overlay=0:{divider_y}[s3];"
-        f"[s3][3:v]overlay=0:0:eof_action=repeat{ass_flt}[out]"
+    # Inputs: 0=movie, 1=host_rgb, 2=master_audio, 3=chrome_png, 4=feather_png, [5=host_alpha]
+    cmd = [
+        "ffmpeg", "-y",
+        *seek_args,
+        "-t", f"{dur:.3f}",
+        "-i", str(source_path),
+        "-i", str(host_booth_mp4),
+        "-i", str(master_m4a),
+        "-i", str(chrome_png),
+        "-loop", "1", "-framerate", "30", "-t", f"{dur + 1.0:.3f}", "-i", str(feather_png),
+    ]
+    host_alpha_idx: int | None = None
+    if has_host_alpha:
+        cmd.extend(["-i", str(alpha_cand)])
+        host_alpha_idx = 5
+
+    fc = build_chapter_composite_filter_complex(
+        active_w,
+        active_h,
+        dur,
+        pre,
+        lay,
+        has_host_alpha=has_host_alpha,
+        feather_input_idx=4,
+        chrome_input_idx=3,
+        host_alpha_input_idx=host_alpha_idx,
+        ass_flt=ass_flt,
     )
 
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
     enc_flags = video_composer.select_h264_encoder(config, intermediate=False)
-    ffutil.run(
+    cmd.extend(
         [
-            "ffmpeg", "-y",
-            *seek_args,
-            "-t", f"{dur:.3f}",
-            "-i", str(source_path),
-            "-i", str(host_booth_mp4),
-            "-i", str(master_m4a),
-            "-i", str(chrome_png),
             "-filter_complex", fc,
             "-map", "[out]", "-map", "2:a:0",
             *enc_flags,
@@ -780,4 +882,5 @@ def compose_chapter_short(
             str(out_mp4),
         ]
     )
+    ffutil.run(cmd)
     return out_mp4

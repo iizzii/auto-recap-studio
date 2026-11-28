@@ -247,11 +247,12 @@ def _call_llm(
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
-        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60_000))
-        primary_model = str(llm_cfg.get("model", "gemini-3.8-flash"))
-        models_to_try = [primary_model] + [
-            m for m in ("gemini-3.5-flash", "gemini-3.5-flash-lite") if m != primary_model
-        ]
+        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=90_000))
+        primary_model = str(llm_cfg.get("model", "gemini-3.5-flash"))
+        fallback_models = list(
+            llm_cfg.get("fallback_models", ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-2.0-flash"])
+        )
+        models_to_try = [primary_model] + [m for m in fallback_models if m != primary_model]
         backoff_schedule = (5.0, 12.0, 25.0, 45.0)
         last_exc: Exception | None = None
 

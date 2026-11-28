@@ -231,3 +231,164 @@ def run_qa_gate(
         log.error("QA Gate FAILED: %s", failures or warnings)
         sys.exit(_EXIT_CODE_QA_FAIL)
     return report
+
+
+def _black_stats(media_path: Path, total_dur: float) -> tuple[float, float]:
+    """Return (max_black_sec, trailing_black_sec_in_final_1s) in one blackdetect pass."""
+    res = ffutil.run(
+        [
+            "ffmpeg",
+            "-i",
+            str(media_path),
+            "-vf",
+            "blackdetect=d=0.1:pix_th=0.10",
+            "-f",
+            "null",
+            "-",
+        ],
+        check=False,
+    )
+    max_dur = 0.0
+    trailing = 0.0
+    pat = re.compile(
+        r"black_start:(\d+(?:\.\d+)?)\s+black_end:(\d+(?:\.\d+)?)\s+black_duration:(\d+(?:\.\d+)?)"
+    )
+    for m in pat.finditer(res.stderr):
+        b_end = float(m.group(2))
+        b_dur = float(m.group(3))
+        if b_dur > max_dur:
+            max_dur = b_dur
+        if total_dur > 1.0 and b_end >= total_dur - 0.25:
+            trailing = max(trailing, b_dur)
+    return max_dur, trailing
+
+
+def run_chapter_qa_gate(
+    final_mp4: Path,
+    script: Any,
+    timings: list[dict[str, Any]],
+    expansion_meta: dict[str, Any],
+    out_dir: Path,
+    config: dict[str, Any],
+    *,
+    strict: bool = True,
+    mock_llm: bool = False,
+) -> dict[str, Any]:
+    """Run hard QA checks for chapter_commentary mode, write qa_report.json, exit 7 on failure."""
+    from pipeline import chapter_commentator
+
+    rt = config.get("runtime", {})
+    qa_cfg = config.get("qa", {})
+    cc_cfg = config.get("chapter_commentary", {})
+    audio_cfg = config.get("audio", {})
+
+    exp_w = int(rt.get("width", 1080))
+    exp_h = int(rt.get("height", 1920))
+    exp_fps = int(rt.get("fps", 30))
+    sync_tol = float(qa_cfg.get("av_sync_tolerance_sec", 0.15))
+    target_lufs = float(audio_cfg.get("target_lufs", -14.0))
+    min_share = float(cc_cfg.get("min_commentary_share", 0.35))
+    max_share = float(cc_cfg.get("max_commentary_share", 0.65))
+    min_emotions = int(cc_cfg.get("min_distinct_emotions", 5))
+    min_dur = 3.0 if mock_llm else max(45.0, float(cc_cfg.get("min_chapter_sec", 65.0)) - 15.0)
+    max_dur = float(cc_cfg.get("max_chapter_sec", 120.0)) + 20.0
+
+    info = ffutil.probe(final_mp4)
+    v_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
+    a_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "audio"), None)
+
+    failures: list[str] = []
+    warnings: list[str] = []
+
+    if v_stream is None:
+        failures.append("No video stream found in final chapter Short.")
+    else:
+        w = int(v_stream.get("width", 0))
+        h = int(v_stream.get("height", 0))
+        if (w, h) != (exp_w, exp_h):
+            failures.append(f"Resolution {w}x{h} != {exp_w}x{exp_h}.")
+        if v_stream.get("codec_name") != "h264":
+            failures.append(f"Video codec {v_stream.get('codec_name')} != h264.")
+        if v_stream.get("pix_fmt") != "yuv420p":
+            failures.append(f"Pixel format {v_stream.get('pix_fmt')} != yuv420p.")
+        r_fps = v_stream.get("r_frame_rate", "0/1")
+        num, den = (int(x) for x in str(r_fps).split("/"))
+        actual_fps = num / max(1, den)
+        if abs(actual_fps - exp_fps) > 0.1:
+            failures.append(f"FPS {actual_fps:.2f} != {exp_fps}.")
+
+    if a_stream is None:
+        failures.append("No audio stream found in final chapter Short.")
+
+    v_dur = float(v_stream.get("duration") or info.get("format", {}).get("duration", 0)) if v_stream else 0.0
+    a_dur = float(a_stream.get("duration") or v_dur) if a_stream else 0.0
+    if not (min_dur <= v_dur <= max_dur):
+        failures.append(f"Duration {v_dur:.2f}s outside [{min_dur:.1f}, {max_dur:.1f}]s.")
+    if abs(v_dur - a_dur) > sync_tol:
+        failures.append(f"A/V sync delta {abs(v_dur - a_dur):.3f}s > {sync_tol}s.")
+
+    lufs = _measure_lufs(final_mp4)
+    if lufs <= -50.0 or abs(lufs - target_lufs) > 3.5:
+        failures.append(f"Integrated loudness {lufs:.2f} LUFS out of acceptable range near {target_lufs} LUFS.")
+    elif abs(lufs - target_lufs) > 2.0:
+        warnings.append(f"Integrated loudness {lufs:.2f} LUFS differs slightly from target {target_lufs}.")
+
+    max_black, trailing_black = _black_stats(final_mp4, v_dur)
+    if max_black > 1.5:
+        failures.append(f"Black frame run {max_black:.2f}s > 1.5s.")
+    if trailing_black >= 0.4:
+        failures.append(f"Trailing black screen detected at end of clip ({trailing_black:.2f}s).")
+
+    # Commentary anti-placeholder, anti-cliche, anti-repetition & diversity gate
+    script_errs = chapter_commentator.validate_chapter_commentary(
+        script,
+        chapter_duration_sec=None,
+        min_emotions=min_emotions,
+        require_freeze_frames=False,
+    )
+    failures.extend(script_errs)
+
+    active_sec = float(expansion_meta.get("active_commentary_sec", 0.0))
+    share = active_sec / max(0.1, v_dur) if v_dur > 0 else float(expansion_meta.get("commentary_share", 0.0))
+    freeze_count = int(expansion_meta.get("freeze_count", 0))
+    distinct_emotions = sorted({str(t.get("emotion", "neutral")) for t in timings})
+
+    if not mock_llm:
+        if share < min_share or share > max_share:
+            failures.append(
+                f"Active commentary share {share:.1%} outside [{min_share:.0%}, {max_share:.0%}]."
+            )
+        if freeze_count < 1:
+            failures.append("Zero freeze-frame roast moments rendered in live chapter commentary.")
+        elif freeze_count < 2:
+            warnings.append(f"Only {freeze_count} freeze-frame roast moment rendered (target 2-3).")
+
+    report = {
+        "passed": len(failures) == 0,
+        "failures": failures,
+        "warnings": warnings,
+        "metrics": {
+            "video_duration_sec": round(v_dur, 3),
+            "audio_duration_sec": round(a_dur, 3),
+            "av_sync_delta_sec": round(abs(v_dur - a_dur), 4),
+            "integrated_lufs": round(lufs, 2),
+            "max_black_sec": round(max_black, 3),
+            "trailing_black_sec": round(trailing_black, 3),
+            "cues_count": len(timings),
+            "freeze_count": freeze_count,
+            "active_commentary_sec": round(active_sec, 2),
+            "commentary_share": round(share, 4),
+            "distinct_emotions_count": len(distinct_emotions),
+            "distinct_emotions": distinct_emotions,
+            "top_headline": getattr(script, "top_headline", ""),
+            "genre": getattr(script, "genre", ""),
+        },
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "qa_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    if failures and strict:
+        log.error("Chapter QA Gate FAILED: %s", failures)
+        sys.exit(_EXIT_CODE_QA_FAIL)
+    return report
+

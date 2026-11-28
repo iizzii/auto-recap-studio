@@ -27,7 +27,7 @@ def _ass_time(sec: float) -> str:
 
 
 def _hex_to_ass_bgr(hex_color: str) -> str:
-    """Convert ``#RRGGBB`` to ASS ``&H00BBGGRR``."""
+    """Convert ``#RRGGBB`` to ASS Style ``&H00BBGGRR``."""
     h = hex_color.lstrip("#")
     if len(h) != 6:
         return "&H00FFFFFF"
@@ -35,8 +35,30 @@ def _hex_to_ass_bgr(hex_color: str) -> str:
     return f"&H00{b}{g}{r}".upper()
 
 
+def _hex_to_ass_tag_bgr(hex_color: str) -> str:
+    """Convert ``#RRGGBB`` to ASS inline override tag ``&HBBGGRR&``."""
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return "&HFFFFFF&"
+    r, g, b = h[0:2], h[2:4], h[4:6]
+    return f"&H{b}{g}{r}&".upper()
+
+
 def _resolve_font(preferred: str, fallback: str) -> str:
-    """Verify *preferred* font via ``fc-list``, falling back to *fallback*."""
+    """Resolve *preferred* font from bundled assets/fonts TTF or system ``fc-list``."""
+    fonts_dir = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+    pref_key = re.sub(r"[^a-z0-9]", "", preferred.lower())
+    if fonts_dir.exists():
+        for ttf in sorted(fonts_dir.glob("*.ttf")):
+            if pref_key and pref_key[:8] in re.sub(r"[^a-z0-9]", "", ttf.stem.lower()):
+                try:
+                    from PIL import ImageFont
+
+                    fam, _style = ImageFont.truetype(str(ttf), 24).getname()
+                    if fam:
+                        return fam
+                except Exception:
+                    pass
     try:
         res = subprocess.run(
             ["fc-list", f":family={preferred}"],
@@ -244,3 +266,213 @@ def generate_captions(
         w_words = " ".join(w for w, _, _ in whisper_words).lower().split()
         match_ratio = difflib.SequenceMatcher(None, s_words, w_words).ratio()
     return ass_path, match_ratio
+
+
+_REACTION_GOLD_WORDS: frozenset[str] = frozenset(
+    {
+        "wait",
+        "bro",
+        "no",
+        "nope",
+        "what",
+        "whoa",
+        "yikes",
+        "karma",
+        "cooked",
+        "trap",
+        "run",
+        "dead",
+        "wild",
+        "insane",
+        "snapped",
+        "boom",
+        "nah",
+        "bruh",
+        "ouch",
+        "stop",
+        "help",
+        "ambush",
+        "plot",
+        "twist",
+    }
+)
+
+
+def _norm_token(word: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", word.lower())
+
+
+def _is_emphasis_token(raw_word: str, emphasis_word: str) -> bool:
+    norm = _norm_token(raw_word)
+    if not norm:
+        return False
+    emp_norm = _norm_token(emphasis_word)
+    if emp_norm and (norm == emp_norm or (len(emp_norm) >= 4 and emp_norm in norm)):
+        return True
+    if raw_word.rstrip("\"'").endswith("!"):
+        return True
+    return norm in _REACTION_GOLD_WORDS
+
+
+def _align_cue_words(
+    cue_text: str,
+    cue_start: float,
+    cue_end: float,
+    whisper_words: list[tuple[str, float, float]],
+) -> list[tuple[str, float, float]]:
+    """Align words of a single cue to Whisper word timings inside [cue_start, cue_end]."""
+    clean = re.sub(r"[—–/]+", " ", cue_text)
+    words = [w.strip("—–- ") for w in clean.split() if w.strip("—–- ")]
+    if not words:
+        return []
+    dur = max(0.15, cue_end - cue_start)
+    weights = [max(2, len(_norm_token(w)) or 2) for w in words]
+    total_w = float(sum(weights))
+    cursor = cue_start
+    fallback: list[tuple[str, float, float]] = []
+    for w, wt in zip(words, weights):
+        wdur = dur * (wt / total_w)
+        fallback.append((w, cursor, cursor + wdur))
+        cursor += wdur
+
+    local_w = [
+        (tw, max(cue_start, ws), min(cue_end, we))
+        for tw, ws, we in whisper_words
+        if we > cue_start - 0.15 and ws < cue_end + 0.15 and we > ws
+    ]
+    if not local_w:
+        return fallback
+
+    s_norm = [_norm_token(w) for w in words]
+    w_norm = [_norm_token(w) for w, _, _ in local_w]
+    sm = difflib.SequenceMatcher(None, s_norm, w_norm)
+    aligned = list(fallback)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for off in range(i2 - i1):
+                _, ws, we = local_w[j1 + off]
+                aligned[i1 + off] = (words[i1 + off], ws, max(ws + 0.06, we))
+        elif tag == "replace" and (i2 - i1) > 0 and (j2 - j1) > 0:
+            span_s = local_w[j1][1]
+            span_e = max(span_s + 0.10, local_w[j2 - 1][2])
+            step = (span_e - span_s) / (i2 - i1)
+            for k in range(i2 - i1):
+                aligned[i1 + k] = (words[i1 + k], span_s + k * step, span_s + (k + 1) * step)
+    return aligned
+
+
+def build_chapter_pop_captions(
+    placed_timings: list[dict[str, Any]],
+    full_wav: Path,
+    ass_path: Path,
+    config: dict[str, Any],
+    *,
+    mock_tts: bool = False,
+) -> Path:
+    """Build viral 1-2 word pop captions at the movie/booth seam with gold emphasis highlights."""
+    cap_cfg = config.get("captions", {})
+    font_name = _resolve_font(
+        str(cap_cfg.get("font_name", "Montserrat ExtraBold")),
+        str(cap_cfg.get("font_fallback", "DejaVu Sans Bold")),
+    )
+    font_size = int(cap_cfg.get("font_size", 92))
+    outline_px = int(cap_cfg.get("outline_px", 7))
+    shadow_px = int(cap_cfg.get("shadow_px", 3))
+    margin_v = int(cap_cfg.get("chapter_margin_v", 905))
+    white_ass = _hex_to_ass_bgr(str(cap_cfg.get("active_color", "#FFFFFF")))
+    white_tag = _hex_to_ass_tag_bgr(str(cap_cfg.get("active_color", "#FFFFFF")))
+    gold_tag = _hex_to_ass_tag_bgr(str(cap_cfg.get("emphasis_color", "#FFD84D")))
+
+    whisper_words: list[tuple[str, float, float]] = []
+    if not mock_tts and full_wav.exists():
+        try:
+            from faster_whisper import WhisperModel
+
+            model = WhisperModel(
+                str(cap_cfg.get("model", "base.en")),
+                device=str(cap_cfg.get("device", "cpu")),
+                compute_type=str(cap_cfg.get("compute_type", "int8")),
+                cpu_threads=int(cap_cfg.get("cpu_threads", 2)),
+            )
+            segs, _ = model.transcribe(str(full_wav), word_timestamps=True)
+            for seg in segs:
+                for w in getattr(seg, "words", []) or []:
+                    txt = w.word.strip()
+                    if txt:
+                        whisper_words.append((txt, float(w.start), float(w.end)))
+        except Exception as exc:
+            log.warning("Whisper caption alignment skipped (%s); using proportional cue timing.", exc)
+
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "PlayResX: 1080\n"
+        "PlayResY: 1920\n"
+        "WrapStyle: 2\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
+        "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
+        "MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,{font_name},{font_size},{white_ass},{white_ass},"
+        f"&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,{outline_px},{shadow_px},"
+        f"2,40,40,{margin_v},1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+
+    events: list[str] = []
+    pop_tag = r"{\fscx92\fscy92\t(0,60,\fscx112\fscy112)\t(60,120,\fscx100\fscy100)}"
+    min_word_ms = int(cap_cfg.get("min_word_display_ms", 120))
+    max_chunk_chars = 14
+
+    prev_end = 0.0
+    for cue in placed_timings:
+        c_start = float(cue["start_sec"])
+        c_end = float(cue["end_sec"])
+        emp = str(cue.get("emphasis_word", ""))
+        aligned = _align_cue_words(str(cue.get("text", "")), c_start, c_end, whisper_words)
+        if not aligned:
+            continue
+
+        # Pack into punchy 1-2 word chunks without crossing cue boundaries
+        chunks: list[list[tuple[str, float, float]]] = []
+        idx = 0
+        while idx < len(aligned):
+            w, ws, we = aligned[idx]
+            dur_ms = (we - ws) * 1000.0
+            if (
+                idx + 1 < len(aligned)
+                and (len(w) <= 3 or dur_ms < min_word_ms)
+                and not _is_emphasis_token(w, emp)
+                and len(w) + 1 + len(aligned[idx + 1][0]) <= max_chunk_chars
+            ):
+                chunks.append([aligned[idx], aligned[idx + 1]])
+                idx += 2
+            else:
+                chunks.append([aligned[idx]])
+                idx += 1
+
+        for chunk in chunks:
+            s_t = max(prev_end, chunk[0][1])
+            e_t = max(s_t + 0.08, min(c_end + 0.04, chunk[-1][2]))
+            prev_end = e_t
+            styled_parts: list[str] = []
+            for raw_w, _, _ in chunk:
+                disp = raw_w.strip("—–- ").upper()
+                if not disp:
+                    continue
+                if _is_emphasis_token(raw_w, emp):
+                    styled_parts.append(f"{{\\c{gold_tag}}}{disp}{{\\c{white_tag}}}")
+                else:
+                    styled_parts.append(disp)
+            if not styled_parts:
+                continue
+            text_line = pop_tag + " ".join(styled_parts)
+            events.append(
+                f"Dialogue: 0,{_ass_time(s_t)},{_ass_time(e_t)},Default,,0,0,0,,{text_line}"
+            )
+
+    ass_path.parent.mkdir(parents=True, exist_ok=True)
+    ass_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    return ass_path

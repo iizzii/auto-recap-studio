@@ -2,14 +2,21 @@ pipeline:
   default_mode: chapter_commentary
 
 chapter_commentary:
-  target_chapter_sec: 98.0
+  target_chapter_sec: 82.0
   min_chapter_sec: 65.0
-  max_chapter_sec: 125.0
-  contact_sheet_interval_sec: 3.0
-  source_audio_ducked_db: -16
-  bgm_fallback_db: -15
-  min_gap_between_lines_sec: 0.35
-  max_line_speedup: 1.12
+  max_chapter_sec: 120.0
+  contact_sheet_interval_sec: 2.0
+  storyboard_interval_sec: 5.0
+  source_audio_normal_db: -6.0
+  source_audio_ducked_db: -18.0
+  bgm_fallback_db: -15.0
+  min_gap_between_lines_sec: 0.30
+  max_line_speedup: 1.14
+  audio_crossfade_sec: 0.12
+  freeze_zoom_end: 1.07
+  min_commentary_share: 0.35
+  max_commentary_share: 0.65
+  min_distinct_emotions: 5
 
 host:
   enabled: true
@@ -17,11 +24,17 @@ host:
   sprites_dir: "assets/host/sprites"
   booths_dir: "assets/host/booths"
   fps: 30
+  booth_width: 1080
+  booth_height: 970
+  sprite_size: 620
   rms_open_threshold: 0.085
   rms_half_threshold: 0.028
   blink_interval_sec: [2.8, 4.6]
   blink_duration_ms: 120
-  character_x_ratio: 0.38
+  character_x_ratio: 0.39
+  screen_glow_strength: 0.06
+  emotion_crossfade_frames: 4
+  max_head_tilt_deg: 2.5
 
 runtime:
   fps: 30
@@ -40,12 +53,12 @@ rights:
 
 source:
   max_source_gb: 6
-  exclude_head_sec: 20
-  exclude_tail_pct: 3
+  exclude_head_sec: 12
+  exclude_tail_pct: 8
   auto_detect_end_credits: true
   max_auto_credit_tail_pct: 30
   auto_transcribe_source: true
-  whisper_model_fallback: small.en
+  whisper_model_fallback: base.en
   subtitle_language: en
   pass1_visual_overview: true
   pass1_max_frames: 48
@@ -54,7 +67,8 @@ source:
 
 llm:
   provider: gemini
-  model: gemini-3.8-flash
+  model: gemini-3.5-flash
+  fallback_models: ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-2.0-flash"]
   temperature: 0.7
   max_retries: 3
   chunk_tokens: 2500
@@ -149,11 +163,12 @@ captions:
   max_chars_per_line: 16
   font_name: "Montserrat ExtraBold"
   font_fallback: "DejaVu Sans Bold"
-  font_size: 88
-  outline_px: 6
+  font_size: 92
+  outline_px: 7
   shadow_px: 3
   active_color: "#FFFFFF"
   inactive_color: "#FFFFFF"
+  emphasis_color: "#FFD84D"
   alignment: 2
   margin_v: 500
   accent_rotation: ["#FFFFFF"]

@@ -44,16 +44,34 @@ jobs:
           cache: pip
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libass9
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libass9 fontconfig
+
+      - name: Cache Whisper models, BGM, and fonts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/recap_bgm
+            assets/fonts
+          key: recap-daily-cache-v2
+
+      - name: Install Montserrat ExtraBold font
+        run: |
+          mkdir -p assets/fonts ~/.local/share/fonts
+          if [ ! -s assets/fonts/Montserrat-ExtraBold.ttf ] || [ "$(wc -c < assets/fonts/Montserrat-ExtraBold.ttf)" -lt 20000 ]; then
+            curl -fsSL -o assets/fonts/Montserrat-ExtraBold.ttf \
+              "https://cdn.jsdelivr.net/fontsource/fonts/montserrat@latest/latin-800-normal.ttf" \
+              || curl -fsSL -o assets/fonts/Montserrat-ExtraBold.ttf \
+                "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf" \
+              || echo "Montserrat download failed; falling back to DejaVu Sans Bold"
+          fi
+          if [ -s assets/fonts/Montserrat-ExtraBold.ttf ]; then
+            cp assets/fonts/Montserrat-ExtraBold.ttf ~/.local/share/fonts/Montserrat-ExtraBold.ttf
+            fc-cache -fv
+          fi
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
-
-      - name: Cache BGM tracks
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/recap_bgm
-          key: recap-bgm-v1
 
       - name: Run Next Day Slot
         env:
@@ -73,7 +91,9 @@ jobs:
           name: daily-publisher-output
           path: |
             /tmp/recap_work/*/output/final_short.mp4
+            /tmp/recap_work/*/output/part*_final_short.mp4
             /tmp/recap_work/*/output/metadata.json
+            /tmp/recap_work/*/output/qa_report.json
           if-no-files-found: ignore
           retention-days: 2
 

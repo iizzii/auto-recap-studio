@@ -131,10 +131,17 @@ jobs:
 
       - name: Ensure Montserrat ExtraBold font
         run: |
-          if [ ! -f assets/fonts/Montserrat-ExtraBold.ttf ]; then
+          mkdir -p assets/fonts ~/.local/share/fonts
+          if [ ! -s assets/fonts/Montserrat-ExtraBold.ttf ] || [ "$(wc -c < assets/fonts/Montserrat-ExtraBold.ttf)" -lt 20000 ]; then
             curl -fsSL -o assets/fonts/Montserrat-ExtraBold.ttf \
-              "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-ExtraBold.ttf" \
+              "https://cdn.jsdelivr.net/fontsource/fonts/montserrat@latest/latin-800-normal.ttf" \
+              || curl -fsSL -o assets/fonts/Montserrat-ExtraBold.ttf \
+                "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf" \
               || echo "Font download failed; falling back to DejaVu Sans Bold"
+          fi
+          if [ -s assets/fonts/Montserrat-ExtraBold.ttf ]; then
+            cp assets/fonts/Montserrat-ExtraBold.ttf ~/.local/share/fonts/Montserrat-ExtraBold.ttf
+            fc-cache -fv
           fi
 
       - name: Install Python dependencies

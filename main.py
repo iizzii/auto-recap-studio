@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import logging
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -16,7 +17,7 @@ from dotenv import load_dotenv
 import typer
 import yaml
 
-from pipeline.models import Shot
+from pipeline.models import ChapterSlice, Shot
 
 from pipeline import (
     audio_mixer,
@@ -168,52 +169,65 @@ def run(
     allowed_start = min(allowed_start, max(0.0, src_dur - 10.0))
     tail_pct = float(src_cfg.get("exclude_tail_pct", 8))
     allowed_end = max(allowed_start + 5.0, src_dur * (1.0 - tail_pct / 100.0))
-    if split_part > 0 and src_dur <= 900:
-        log.warning(
-            "Source duration %.1fs <= 15 min: shorts perform best as a single complete video (split_part=0).",
-            src_dur,
-        )
+    if rights_rec.exclude_tail_sec is not None and rights_rec.exclude_tail_sec > 0:
+        allowed_end = min(allowed_end, max(allowed_start + 5.0, src_dur - float(rights_rec.exclude_tail_sec)))
+    full_allowed_range = (allowed_start, allowed_end)
+
     if split_part > 0 and total_parts > 1:
         ranges = compute_series_ranges(allowed_start, allowed_end, total_parts)
         allowed_range = ranges[min(split_part - 1, len(ranges) - 1)]
     else:
-        allowed_range = (allowed_start, allowed_end)
+        allowed_range = full_allowed_range
 
-    # Dispatch to uncut chapter_commentary mode when configured (skip for ci_synth)
+    # Dispatch to 3-Act chapter_commentary mode when configured (skip for ci_synth)
     default_mode = str(cfg.get("pipeline", {}).get("default_mode", "chapter_commentary"))
     if slug != "ci_synth" and (mode == "chapter_commentary" or (mode == "full_auto" and default_mode == "chapter_commentary")):
-        final_mp4 = run_chapter_commentary(
+        final_mp4, ch_script, ch_qa = run_chapter_commentary(
             cfg=cfg,
             slug=slug,
             source_path=source_path,
             rights_rec=rights_rec,
-            allowed_range=allowed_range,
+            allowed_range=full_allowed_range,
             split_part=split_part,
             total_parts=total_parts,
             project_dir=project_dir,
             work_dir=work_dir,
             out_dir=out_dir,
+            srt_source=srt_source,
+            force=force,
             mock_llm=mock_llm,
             mock_tts=mock_tts,
         )
-        run_rep.stages_completed.append("chapter_commentary")
+        run_rep.warnings.extend(ch_qa.get("warnings", []))
+        run_rep.stages_completed.extend(["chapter_commentary", "qa_gate"])
+
+        raw_headline_words = (ch_script.top_headline or "WATCH KIKO REACT NOW").split()
+        if len(raw_headline_words) < 3:
+            banner_safe = "WATCH KIKO REACT NOW"
+        else:
+            banner_safe = " ".join(raw_headline_words[:6])
+        title_safe = (ch_script.chapter_title or f"{rights_rec.work_title} #shorts")[:75]
+
         manifest_stub = ProjectManifest(
             project_slug=slug,
             style="commentary",
             part_number=split_part,
-            title=f"{rights_rec.work_title} #shorts",
-            banner_text="WATCH KIKO REACT",
-            description=f"{rights_rec.work_title} commentary with Kiko.",
-            hashtags=["#shorts", "#animation"],
+            title=title_safe,
+            banner_text=banner_safe,
+            description=(
+                f"{ch_script.top_headline} — {rights_rec.work_title} commentary with Kiko. "
+                f"{ch_script.cliffhanger_summary}".strip()
+            ),
+            hashtags=["#shorts", "#reels", "#animation", "#movierecap"],
             source_title=rights_rec.work_title,
             attribution_block=rights_rec.attribution_text or "",
             beats=[
                 Beat(
                     beat_id=1,
-                    narration="Kiko reacts to the movie.",
-                    source_window_start_sec=allowed_range[0],
-                    source_window_end_sec=allowed_range[1],
-                    visual_cue="movie scene",
+                    narration=ch_script.cues[0].text if ch_script.cues else "Kiko reacts to the movie.",
+                    source_window_start_sec=full_allowed_range[0],
+                    source_window_end_sec=full_allowed_range[1],
+                    visual_cue=ch_script.top_headline or "movie scene",
                     mood="hook",
                     kind="commentary",
                 )
@@ -230,8 +244,8 @@ def run(
                 Shot(
                     beat_id=1,
                     shot_index=0,
-                    src_start_sec=allowed_range[0],
-                    src_end_sec=min(allowed_range[1], allowed_range[0] + 5.0),
+                    src_start_sec=full_allowed_range[0],
+                    src_end_sec=min(full_allowed_range[1], full_allowed_range[0] + 5.0),
                     speed_factor=1.0,
                     frames=150,
                     match_score=8.0,
@@ -583,25 +597,130 @@ def compute_series_ranges(
     ]
 
 
+def _resolve_series_video_source(slug: str, explicit_source: Optional[str]) -> str:
+    """Resolve video URL from CLI option, projects/<slug>/rights.json, calendar, queue, or catalog."""
+    if explicit_source and explicit_source.strip():
+        return explicit_source.strip()
+
+    rights_path = Path("projects") / slug / "rights.json"
+    rights_url = ""
+    if rights_path.exists():
+        try:
+            rd = json.loads(rights_path.read_text(encoding="utf-8"))
+            rights_url = str(rd.get("source_page_url") or "").strip()
+            if any(
+                rights_url.lower().endswith(ext)
+                for ext in (".mp4", ".mkv", ".webm", ".mov")
+            ) or "/download/videos/" in rights_url:
+                return rights_url
+        except Exception:
+            pass
+
+    cal_path = Path("release_calendar_365.json")
+    if cal_path.exists():
+        try:
+            cal_data = json.loads(cal_path.read_text(encoding="utf-8"))
+            for slot in cal_data.get("slots", []):
+                if slot.get("base_slug") == slug or slot.get("slot_id") == slug:
+                    url = str(slot.get("video_url") or "").strip()
+                    if url:
+                        return url
+        except Exception:
+            pass
+
+    q_path = Path("queue.json")
+    if q_path.exists():
+        try:
+            q_data = json.loads(q_path.read_text(encoding="utf-8"))
+            for item in q_data.get("items", []):
+                if item.get("slug") == slug:
+                    url = str(item.get("video_source_url") or "").strip()
+                    if url:
+                        return url
+        except Exception:
+            pass
+
+    cat_path = Path("assets/catalogs/open_movies.json")
+    if cat_path.exists():
+        try:
+            cat_data = json.loads(cat_path.read_text(encoding="utf-8"))
+            entries = cat_data if isinstance(cat_data, list) else cat_data.get("movies", [])
+            for entry in entries:
+                if entry.get("slug") == slug:
+                    url = str(entry.get("video_url") or "").strip()
+                    if url:
+                        return url
+        except Exception:
+            pass
+
+    if rights_url:
+        return rights_url
+    raise typer.BadParameter(
+        f"Could not auto-resolve --video-source for slug '{slug}'. "
+        "Pass --video-source explicitly or add a direct video URL to projects/<slug>/rights.json."
+    )
+
+
+def _write_series_github_summary(slug: str, summary: dict[str, Any]) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
+    if not summary_path:
+        return
+    lines = [
+        f"## 3-Act Series Render Summary: `{slug}`",
+        "",
+        f"- **All Parts Passed QA:** {'YES' if summary.get('all_passed') else 'NO'}",
+        f"- **Total Parts:** {summary.get('total_parts')}",
+        "",
+        "| Part | Headline | Duration | Commentary Share | Freezes | Emotions | LUFS | QA |",
+        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :---: |",
+    ]
+    for p in summary.get("parts", []):
+        m = p.get("metrics", {})
+        status = "PASS" if p.get("passed") else "FAIL"
+        lines.append(
+            f"| Part {p['part_number']}/{summary.get('total_parts')} "
+            f"| {m.get('top_headline', '')} "
+            f"| {m.get('video_duration_sec', 0):.1f}s "
+            f"| {m.get('commentary_share', 0.0) * 100:.1f}% "
+            f"| {m.get('freeze_count', 0)} "
+            f"| {m.get('distinct_emotions_count', 0)} "
+            f"| {m.get('integrated_lufs', -99):.1f} "
+            f"| {status} |"
+        )
+    lines.append("")
+    with Path(summary_path).open("a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 @app.command(name="run-series")
 def run_series(
     slug: str = typer.Option(..., "--slug", help="Base project slug."),
-    video_source: str = typer.Option(..., "--video-source", help="Video URL or local path."),
+    video_source: Optional[str] = typer.Option(
+        None, "--video-source", help="Video URL or local path (auto-resolved from rights/catalog if omitted)."
+    ),
     parts: int = typer.Option(3, "--parts", help="Number of chronological parts."),
+    mode: str = typer.Option("chapter_commentary", "--mode", help="chapter_commentary | full_auto"),
     srt_source: Optional[str] = typer.Option(None, "--srt-source", help="Optional subtitle URL."),
     style: str = typer.Option("commentary", "--style", help="commentary | recap"),
     publish_target: str = typer.Option("artifact_only", "--publish-target", help="Delivery target."),
-    force: bool = typer.Option(True, "--force", help="Force regenerate."),
+    force: bool = typer.Option(True, "--force/--no-force", help="Force regenerate 3-Act plan & scripts."),
+    config: Path = typer.Option(Path("config.yaml"), "--config", help="Config YAML path."),
 ) -> None:
-    """Render an N-part chronological series sequentially."""
+    """Render an N-part chronological 3-Act series sequentially and assert QA on every part."""
+    resolved_source = _resolve_series_video_source(slug, video_source)
+    cfg = _load_config(config)
+    work_dir = Path(str(cfg.get("runtime", {}).get("work_dir", "/tmp/recap_work"))) / slug
+    out_dir = work_dir / "output"
+    project_dir = Path("projects") / slug
+
     for k in range(1, parts + 1):
-        typer.echo(f"Rendering {slug} Part {k}/{parts}...")
+        typer.echo(f"Rendering {slug} Part {k}/{parts} (mode={mode})...")
         run(
-            config=Path("config.yaml"),
+            config=config,
             slug=slug,
-            video_source=video_source,
+            video_source=resolved_source,
             srt_source=srt_source,
-            mode="full_auto",
+            mode=mode,
             style=style,
             publish_target=publish_target,
             mock_llm=False,
@@ -613,6 +732,53 @@ def run_series(
             max_duration=175,
             allow_reproduce=True,
         )
+
+    # Aggregate series QA summary & copy three_act_plan.json into output directory
+    out_dir.mkdir(parents=True, exist_ok=True)
+    plan_src = project_dir / "three_act_plan.json"
+    if plan_src.exists():
+        shutil.copy2(plan_src, out_dir / "three_act_plan.json")
+
+    parts_summary: list[dict[str, Any]] = []
+    all_passed = True
+    for k in range(1, parts + 1):
+        mp4_p = out_dir / f"part{k}_final_short.mp4"
+        qa_p = out_dir / f"part{k}_qa_report.json"
+        if not mp4_p.exists() or not qa_p.exists():
+            all_passed = False
+            parts_summary.append(
+                {
+                    "part_number": k,
+                    "passed": False,
+                    "failures": [f"Missing output video or QA report for Part {k}"],
+                    "metrics": {},
+                }
+            )
+            continue
+        qa_data = json.loads(qa_p.read_text(encoding="utf-8"))
+        qa_data["part_number"] = k
+        qa_data["video_file"] = mp4_p.name
+        qa_data["video_size_mb"] = round(mp4_p.stat().st_size / (1024 * 1024), 2)
+        if not qa_data.get("passed"):
+            all_passed = False
+        parts_summary.append(qa_data)
+
+    qa_summary = {
+        "slug": slug,
+        "total_parts": parts,
+        "all_passed": all_passed,
+        "parts": parts_summary,
+    }
+    summary_text = json.dumps(qa_summary, indent=2) + "\n"
+    (out_dir / "qa_summary.json").write_text(summary_text, encoding="utf-8")
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "qa_summary.json").write_text(summary_text, encoding="utf-8")
+    _write_series_github_summary(slug, qa_summary)
+
+    if not all_passed:
+        log.error("Series QA failed for one or more parts of '%s'.", slug)
+        sys.exit(7)
+    typer.echo(f"All {parts} parts of '{slug}' rendered and passed QA!")
 
 
 def run_chapter_commentary(
@@ -627,44 +793,148 @@ def run_chapter_commentary(
     work_dir: Path,
     out_dir: Path,
     *,
+    srt_source: Optional[str] = None,
+    force: bool = False,
     mock_llm: bool = False,
     mock_tts: bool = False,
-) -> Path:
-    """Execute uncut chapter_commentary mode with Kiko host booth."""
-    plan_path = project_dir / "chapters_plan.json"
-    if plan_path.exists() and split_part > 1:
-        from pipeline.models import ChapterSlice
-        slices = [ChapterSlice(**x) for x in json.loads(plan_path.read_text(encoding="utf-8"))]
-    else:
-        slices = chapter_slicer.plan_chapters(
-            source_path, allowed_range[0], allowed_range[1], total_parts if split_part > 0 else 0, cfg
-        )
-        project_dir.mkdir(parents=True, exist_ok=True)
-        plan_path.write_text(json.dumps([s.model_dump() for s in slices], indent=2) + "\n", encoding="utf-8")
+) -> tuple[Path, Any, dict[str, Any]]:
+    """Execute 3-Act condensed chapter_commentary mode with freeze roasts, Kiko 3D booth & QA gate."""
+    # 1. Extract/cache full-film timestamped dialogue once per film
+    dialogue_segments = chapter_slicer.extract_film_dialogue(
+        source_path, work_dir, cfg, srt_source=srt_source, mock_whisper=mock_llm
+    )
 
-    idx = max(0, min(len(slices) - 1, (split_part - 1) if split_part > 0 else 0))
-    ch_slice = slices[idx]
-    sheet = chapter_slicer.extract_labeled_contact_sheet(
-        source_path, ch_slice.start_sec, ch_slice.end_sec,
-        float(cfg.get("chapter_commentary", {}).get("contact_sheet_interval_sec", 3.0)),
-        work_dir / f"chapter_{ch_slice.part_number}_sheet.jpg",
+    # 2. Plan or load 3-Act Director's Cut (Part 1 builds/refreshes; Parts 2..N reuse it)
+    eff_parts = total_parts if split_part > 0 else 1
+    plan = chapter_slicer.plan_three_act_series(
+        source_path=source_path,
+        allowed_start=allowed_range[0],
+        allowed_end=allowed_range[1],
+        total_parts=eff_parts,
+        base_slug=slug,
+        work_title=rights_rec.work_title,
+        project_dir=project_dir,
+        work_dir=work_dir,
+        config=cfg,
+        dialogue_segments=dialogue_segments,
+        mock_llm=mock_llm,
+        force=(force and split_part <= 1),
+    )
+
+    part_idx = max(0, min(len(plan.parts) - 1, (split_part - 1) if split_part > 0 else 0))
+    act_plan = plan.parts[part_idx]
+    prev_cliff = plan.parts[part_idx - 1].cliffhanger_summary if part_idx > 0 else ""
+    next_cliff = act_plan.cliffhanger_summary
+
+    part_work = work_dir / f"part_{act_plan.part_number}"
+    part_work.mkdir(parents=True, exist_ok=True)
+
+    # 3. Assemble intact chronological scenes with 0.12s zero-drift crossfades
+    chapter_raw, _map_path, timeline_map = chapter_slicer.assemble_condensed_chapter(
+        source_path=source_path,
+        act_plan=act_plan,
+        dialogue_segments=dialogue_segments,
+        project_dir=project_dir,
+        work_dir=part_work,
+        config=cfg,
+    )
+    assembled_dur = float(timeline_map["assembled_duration_sec"])
+    ch_slice = ChapterSlice(
+        part_number=act_plan.part_number,
+        total_parts=act_plan.total_parts,
+        start_sec=0.0,
+        end_sec=assembled_dur,
+        duration_sec=assembled_dur,
+        top_headline=act_plan.top_headline,
+    )
+
+    # 4. Extract 2.0s labeled contact sheets (<=2 pages) & generate dialogue-aware commentary
+    sheet_interval = float(cfg.get("chapter_commentary", {}).get("contact_sheet_interval_sec", 2.0))
+    sheets = chapter_slicer.extract_chapter_contact_sheets(
+        chapter_raw, assembled_dur, sheet_interval, part_work, prefix=f"part_{act_plan.part_number}_sheet"
     )
     script = chapter_commentator.generate_chapter_commentary(
-        sheet, ch_slice, rights_rec.work_title, cfg, mock_llm=mock_llm
+        sheets,
+        ch_slice,
+        rights_rec.work_title,
+        cfg,
+        dialogue_timeline=str(timeline_map.get("dialogue_timeline_text", "")),
+        open_gaps=list(timeline_map.get("open_gaps", [])),
+        previous_cliffhanger=prev_cliff,
+        next_cliffhanger_goal=next_cliff,
+        genre_hint=plan.genre,
+        top_headline=act_plan.top_headline,
+        mock_llm=mock_llm,
     )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"part{act_plan.part_number}_script.json").write_text(
+        script.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+
+    # 5. Synthesize timed commentary + freeze-frame timeline expansion + pop captions
     full_wav, timings_json, ass_path = chapter_commentator.synthesize_timed_commentary(
-        script, ch_slice.duration_sec, work_dir, cfg, mock_tts=mock_tts
+        script, assembled_dur, part_work, cfg, mock_tts=mock_tts
     )
     timings = json.loads(timings_json.read_text(encoding="utf-8"))
-    host_mp4 = host_animator.render_host_booth_video(
-        full_wav, timings, script.genre, ch_slice.duration_sec, work_dir / "host_booth.mp4", cfg
+    expansion_meta = json.loads((part_work / "03_timeline_expansion.json").read_text(encoding="utf-8"))
+    expanded_dur = float(expansion_meta["expanded_duration_sec"])
+
+    # 6. Expand chapter video with silky 1.00x->1.07x slow-zoom freeze-frame roast holds
+    chapter_expanded = chapter_composer.expand_movie_with_freezes(
+        chapter_raw,
+        list(expansion_meta.get("freeze_events", [])),
+        part_work,
+        cfg,
     )
+
+    # 7. Render 1080x970 Kiko 3D host booth with 6% reactive movie screen-glow lighting
+    host_mp4 = host_animator.render_host_booth_video(
+        full_wav,
+        timings,
+        script.genre,
+        expanded_dur,
+        part_work / "host_booth.mp4",
+        cfg,
+        movie_path=chapter_expanded,
+    )
+
+    # 8. Single-pass zero-dead-space 9:16 composite
     final_mp4 = out_dir / "final_short.mp4"
     chapter_composer.compose_chapter_short(
-        source_path, ch_slice, host_mp4, full_wav, ass_path,
-        rights_rec, script.genre, final_mp4, work_dir, cfg,
+        chapter_expanded,
+        ch_slice,
+        host_mp4,
+        full_wav,
+        ass_path,
+        rights_rec,
+        script.genre,
+        final_mp4,
+        part_work,
+        cfg,
+        top_headline=script.top_headline or act_plan.top_headline,
+        expansion_meta=expansion_meta,
+        source_is_assembled=True,
     )
-    return final_mp4
+
+    # 9. Hard QA gate (loudness, sync, black frames, commentary share, anti-placeholder, emotions)
+    qa_rep = qa_gate.run_chapter_qa_gate(
+        final_mp4=final_mp4,
+        script=script,
+        timings=timings,
+        expansion_meta=expansion_meta,
+        out_dir=out_dir,
+        config=cfg,
+        strict=True,
+        mock_llm=mock_llm,
+    )
+
+    # Export per-part artifacts for multi-part series upload
+    part_mp4 = out_dir / f"part{act_plan.part_number}_final_short.mp4"
+    shutil.copy2(final_mp4, part_mp4)
+    (out_dir / f"part{act_plan.part_number}_qa_report.json").write_text(
+        json.dumps(qa_rep, indent=2) + "\n", encoding="utf-8"
+    )
+    return final_mp4, script, qa_rep
 
 
 @app.command(name="build-calendar")

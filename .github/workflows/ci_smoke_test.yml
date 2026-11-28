@@ -35,7 +35,7 @@ jobs:
         run: ruff check .
 
       - name: Compile-check all Python files
-        run: python -m compileall pipeline tests main.py
+        run: python -m compileall pipeline scripts tests main.py
 
       - name: Run unit tests
         run: python -m pytest tests/unit -v

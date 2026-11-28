@@ -280,12 +280,50 @@ HostEmotion = Literal[
 MovieGenre = Literal["comedy", "horror_comedy", "action_scifi", "emotional_drama"]
 
 
+class SceneSegment(BaseModel):
+    """A single intact chronological scene block selected by the 3-Act Director."""
+
+    start_sec: float = Field(..., ge=0.0)
+    end_sec: float = Field(..., gt=0.0)
+    why_kept: str
+
+    @model_validator(mode="after")
+    def _validate_bounds(self) -> SceneSegment:
+        if self.end_sec <= self.start_sec:
+            raise ValueError(
+                f"SceneSegment end_sec ({self.end_sec}) must be > start_sec ({self.start_sec})"
+            )
+        return self
+
+
+class ActChapterPlan(BaseModel):
+    """One condensed Act chapter made of 3-6 intact chronological scene blocks."""
+
+    part_number: int = Field(..., ge=1)
+    total_parts: int = Field(..., ge=1)
+    top_headline: str
+    act_goal: str
+    segments: list[SceneSegment]
+    cliffhanger_summary: str
+
+
+class ThreeActSeriesPlan(BaseModel):
+    """Complete multi-part Director's Cut condensed series plan."""
+
+    base_slug: str
+    work_title: str
+    genre: MovieGenre
+    total_parts: int
+    parts: list[ActChapterPlan]
+
+
 class ChapterSlice(BaseModel):
     part_number: int = Field(..., ge=1)
     total_parts: int = Field(..., ge=1)
     start_sec: float = Field(..., ge=0.0)
     end_sec: float = Field(..., gt=0.0)
     duration_sec: float = Field(..., gt=0.0)
+    top_headline: str = ""
 
 
 class CommentaryCue(BaseModel):
@@ -293,8 +331,19 @@ class CommentaryCue(BaseModel):
     start_sec: float = Field(..., ge=0.0)
     max_duration_sec: float = Field(..., gt=0.5)
     text: str
+    emphasis_word: str = ""
     emotion: HostEmotion
     pause_emotion: HostEmotion = "neutral"
+    freeze_frame: bool = False
+    freeze_duration_sec: float = 0.0
+
+    @model_validator(mode="after")
+    def _validate_freeze(self) -> CommentaryCue:
+        if not self.freeze_frame:
+            self.freeze_duration_sec = 0.0
+        elif self.freeze_duration_sec <= 0.0:
+            self.freeze_duration_sec = 2.0
+        return self
 
 
 class ChapterCommentaryScript(BaseModel):
@@ -302,5 +351,6 @@ class ChapterCommentaryScript(BaseModel):
     voice_name: str
     voice_rate: str
     chapter_title: str
+    top_headline: str = ""
     cliffhanger_summary: str = ""
     cues: list[CommentaryCue]

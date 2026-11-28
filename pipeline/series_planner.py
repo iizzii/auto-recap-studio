@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -99,33 +97,49 @@ def build_series_blueprint(
         )
         return sanitize_series_blueprint(bp, allowed_range, total_parts)
 
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return build_series_blueprint(ledger, total_parts, allowed_range, base_slug, work_title, config, mock_llm=True)
+    from pydantic import BaseModel as _BaseModel
 
-    try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        sys_prompt = _ARCHITECT_PROMPT.read_text(encoding="utf-8") if _ARCHITECT_PROMPT.exists() else ""
-        payload = json.dumps(
-            {
-                "base_slug": base_slug,
-                "work_title": work_title,
-                "total_parts": total_parts,
-                "allowed_start": a_start,
-                "allowed_end": a_end,
-                "events": ledger.get("events", []),
-            },
-            indent=2,
-        )
-        resp = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=f"{sys_prompt}\n\n{payload}",
-            config={"response_mime_type": "application/json", "response_schema": SeriesBlueprint},
-        )
-        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", (resp.text or "").strip())
-        bp = SeriesBlueprint(**json.loads(raw))
-        return sanitize_series_blueprint(bp, allowed_range, total_parts)
-    except Exception as exc:
-        log.warning("Series architect LLM failed (%s); using deterministic split.", exc)
-        return build_series_blueprint(ledger, total_parts, allowed_range, base_slug, work_title, config, mock_llm=True)
+    class _CharWire(_BaseModel):
+        name: str
+        short_role: str
+
+    class _PartWire(_BaseModel):
+        part_number: int
+        total_parts: int
+        window_start_sec: float
+        window_end_sec: float
+        arc_goal: str
+        previous_cliffhanger: str
+        ending_hook: str
+        forbidden_future_spoiler: str
+
+    class _BlueprintWire(_BaseModel):
+        base_slug: str
+        work_title: str
+        total_parts: int
+        characters: list[_CharWire]
+        parts: list[_PartWire]
+
+    from pipeline.chapter_commentator import call_gemini_structured
+
+    sys_prompt = _ARCHITECT_PROMPT.read_text(encoding="utf-8") if _ARCHITECT_PROMPT.exists() else ""
+    payload = json.dumps(
+        {
+            "base_slug": base_slug,
+            "work_title": work_title,
+            "total_parts": total_parts,
+            "allowed_start": a_start,
+            "allowed_end": a_end,
+            "events": ledger.get("events", []),
+        },
+        indent=2,
+    )
+    data = call_gemini_structured(
+        f"{sys_prompt}\n\n{payload}",
+        [],
+        _BlueprintWire,
+        config,
+        label=f"series_architect_{base_slug}",
+    )
+    bp = SeriesBlueprint(**data)
+    return sanitize_series_blueprint(bp, allowed_range, total_parts)
